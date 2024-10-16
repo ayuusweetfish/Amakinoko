@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "BH1750FVI-TR")(type "KiCad")(uri "${KIPRJMOD}/libs/BH1750FVI-TR/BH1750FVI-TR.pretty")(options "")(descr ""))
+)
