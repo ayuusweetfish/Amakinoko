@@ -179,7 +179,7 @@ int main()
     __enable_irq();
 
     uint32_t cur;
-    while ((cur = HAL_GetTick()) - tick < 20)
+    while ((cur = HAL_GetTick()) - tick < 10)
       HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
     tick = cur;
 
@@ -219,13 +219,13 @@ int main()
 void run()
 {
   static uint32_t frame = 0, frame_subdiv = 0;
-  if (++frame_subdiv == 4) {
+  if (++frame_subdiv == 8) {
     frame_subdiv = 0;
     frame++;
     if (frame == 9) frame = 0;
   }
 
-#define N 30
+#define N 60
   uint8_t buf[N][3];
   for (int i = 0, f = frame; i < N; i++, f = (f == 8 ? 0 : f + 1)) {
     uint8_t g = 0, r = 0, b = 0;
@@ -241,16 +241,10 @@ void run()
       {1, 0, 2},
       {2, 0, 1},
     };
-    if (frame_subdiv < 2) {
-      g = seq[f][0] * 2 + 1;
-      r = seq[f][1] * 2 + 1;
-      b = seq[f][2] * 2 + 1;
-    } else {
-      uint8_t f1 = (f == 8 ? 0 : f + 1);
-      g = seq[f][0] + seq[f1][0] + 1;
-      r = seq[f][1] + seq[f1][1] + 1;
-      b = seq[f][2] + seq[f1][2] + 1;
-    }
+    uint8_t f1 = (f == 8 ? 0 : f + 1);
+    g = (seq[f][0] * (8 - frame_subdiv) + seq[f1][0] * frame_subdiv) + 1;
+    r = (seq[f][1] * (8 - frame_subdiv) + seq[f1][1] * frame_subdiv) + 1;
+    b = (seq[f][2] * (8 - frame_subdiv) + seq[f1][2] * frame_subdiv) + 1;
 
     buf[i][0] = g;
     buf[i][1] = r;
@@ -266,8 +260,8 @@ void run()
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
-    OUTPUT_BITS(A, B, 0x0000, 0x0000,);
-    OUTPUT_BITS(A, B, 0x0000, 0x0000,);
+    OUTPUT_BITS(A, B, (g & 16) == 0 ? 0x0000 : 0xffff, 0x0000,);
+    OUTPUT_BITS(A, B, (g & 8) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (g & 4) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (g & 2) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (g & 1) == 0 ? 0x0000 : 0xffff, 0x0000,);
@@ -275,8 +269,8 @@ void run()
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
-    OUTPUT_BITS(A, B, 0x0000, 0x0000,);
-    OUTPUT_BITS(A, B, 0x0000, 0x0000,);
+    OUTPUT_BITS(A, B, (r & 16) == 0 ? 0x0000 : 0xffff, 0x0000,);
+    OUTPUT_BITS(A, B, (r & 8) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (r & 4) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (r & 2) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (r & 1) == 0 ? 0x0000 : 0xffff, 0x0000,);
@@ -284,8 +278,8 @@ void run()
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
     OUTPUT_BITS(A, B, 0x0000, 0x0000,);
-    OUTPUT_BITS(A, B, 0x0000, 0x0000,);
-    OUTPUT_BITS(A, B, 0x0000, 0x0000,);
+    OUTPUT_BITS(A, B, (b & 16) == 0 ? 0x0000 : 0xffff, 0x0000,);
+    OUTPUT_BITS(A, B, (b & 8) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (b & 4) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (b & 2) == 0 ? 0x0000 : 0xffff, 0x0000,);
     OUTPUT_BITS(A, B, (b & 1) == 0 ? 0x0000 : 0xffff, 0x0000,);
