@@ -2918,7 +2918,7 @@
     (property "Value" "Conn_01x12" (at -1.27 125.095 0)
       (effects (font (size 1.27 1.27)) (justify left) hide)
     )
-    (property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_2x06_P2.54mm_Vertical" (at -5.715 122.555 0)
+    (property "Footprint" "Mushroom_footprints:Arc_Pins_12" (at -5.715 122.555 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (at -5.715 122.555 0)
