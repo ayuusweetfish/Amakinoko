@@ -68,6 +68,8 @@ static inline void delay_us(uint32_t us)
   spin_delay(us * 4);
 }
 
+static I2C_HandleTypeDef i2c1;
+
 int main()
 {
   HAL_Init();
@@ -76,8 +78,6 @@ int main()
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
   GPIO_InitTypeDef gpio_init;
 
   // SWD (PA13, PA14)
@@ -112,6 +112,22 @@ int main()
   clk_init.APB1CLKDivider = RCC_HCLK_DIV4;      // 4 MHz
   HAL_RCC_ClockConfig(&clk_init, FLASH_LATENCY_0);
 
+  // ======== I2C ========
+  __HAL_RCC_I2C1_CLK_ENABLE();
+  i2c1 = (I2C_HandleTypeDef){
+    .Instance = I2C1,
+    .Init = {
+      // RM0454 Rev 5, pp. 711, 726, 738 (examples), 766
+      // APB = 4 MHz      -- 0.25 us
+      // PRESC = 1        -- 0.5 us
+      // SCLH = SCLL = 7  -- 4 us  (125 kHz)
+      // SCLDEL = SDADEL = 1
+      // <PRESC>0<SCLDEL><SDADEL><SCLH>~<SCLL>~
+      .Timing = 0x10110707,
+      .AddressingMode = I2C_ADDRESSINGMODE_7BIT,
+    },
+  };
+  HAL_I2C_Init(&i2c1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_6 | GPIO_PIN_7,
     .Alternate = GPIO_AF6_I2C1,
@@ -119,6 +135,15 @@ int main()
     .Pull = GPIO_PULLUP,
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
+
+  void check_device_ready(uint8_t addr, const char *name)
+  {
+    HAL_StatusTypeDef device_ready = HAL_I2C_IsDeviceReady(&i2c1, addr, 3, 1000);
+    swv_printf("%s %u (%u)\n", name, (unsigned)device_ready, (unsigned)i2c1.ErrorCode);
+  }
+  check_device_ready(0b0100011 << 1, "BH1750FVI");
+  check_device_ready(0b1000100 << 1, "SHT30");
+  check_device_ready(0b1011100 << 1, "LPS22HH");
 
   while (1) {
     swv_printf("hello\n");
