@@ -65,10 +65,13 @@ static inline void spin_delay(uint32_t cycles)
 __attribute__ ((section(".RamFunc")))
 static inline void delay_us(uint32_t us)
 {
-  spin_delay(us * 4);
+  spin_delay(us * 64);
 }
 
 static I2C_HandleTypeDef i2c1;
+static TIM_HandleTypeDef tim3;
+
+inline void run();
 
 int main()
 {
@@ -93,13 +96,18 @@ int main()
   // Refer to RM0454 Rev. 5
   // - Ch. 4.1.4, "Dynamic voltage scaling management"
   // - Ch. 3.3.4, "FLASH read access latency"
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE2);
+  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   RCC_OscInitTypeDef osc_init = { 0 };
   osc_init.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   osc_init.HSIState = RCC_HSI_ON;
   osc_init.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  osc_init.PLL.PLLState = RCC_PLL_OFF;
+  osc_init.PLL.PLLState = RCC_PLL_ON;
+  osc_init.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  osc_init.PLL.PLLM = RCC_PLLM_DIV1;  // VCO input 16 MHz (2.66 ~ 16 MHz)
+  osc_init.PLL.PLLN = 8;              // VCO output 128 MHz (64 ~ 344 MHz)
+  osc_init.PLL.PLLP = RCC_PLLP_DIV2;  // PLLPCLK 64 MHz
+  osc_init.PLL.PLLR = RCC_PLLR_DIV2;  // PLLRCLK 64 MHz
   HAL_RCC_OscConfig(&osc_init);
 
   RCC_ClkInitTypeDef clk_init = { 0 };
@@ -107,10 +115,25 @@ int main()
     RCC_CLOCKTYPE_SYSCLK |
     RCC_CLOCKTYPE_HCLK |
     RCC_CLOCKTYPE_PCLK1;
-  clk_init.SYSCLKSource = RCC_SYSCLKSOURCE_HSI; // 16 MHz
-  clk_init.AHBCLKDivider = RCC_SYSCLK_DIV4;     // 4 MHz
-  clk_init.APB1CLKDivider = RCC_HCLK_DIV4;      // 4 MHz
-  HAL_RCC_ClockConfig(&clk_init, FLASH_LATENCY_0);
+  clk_init.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;  // 64 MHz
+  clk_init.AHBCLKDivider = RCC_SYSCLK_DIV1;         // 64 MHz
+  clk_init.APB1CLKDivider = RCC_HCLK_DIV1;          // 64 MHz
+  HAL_RCC_ClockConfig(&clk_init, FLASH_LATENCY_2);
+
+  // ======== Timer ========
+  __HAL_RCC_TIM3_CLK_ENABLE();
+  tim3 = (TIM_HandleTypeDef){
+    .Instance = TIM3,
+    .Init = {
+      .Prescaler = 1 - 1,
+      .CounterMode = TIM_COUNTERMODE_UP,
+      .Period = 80 - 1, // 800 kHz
+      .ClockDivision = TIM_CLOCKDIVISION_DIV1,
+      .RepetitionCounter = 0,
+    },
+  };
+  HAL_TIM_Base_Init(&tim3);
+  HAL_TIM_Base_Start(&tim3);
 
   // ======== I2C ========
   __HAL_RCC_I2C1_CLK_ENABLE();
@@ -148,18 +171,107 @@ int main()
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_9,
-    .Mode = GPIO_MODE_OUTPUT_OD,
-    .Pull = GPIO_PULLUP,
+    .Mode = GPIO_MODE_OUTPUT_PP,
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
 
-  bool parity = 0;
+  uint32_t tick = HAL_GetTick();
   while (1) {
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, parity ^= 1);
-    swv_printf("hello\n");
-    HAL_Delay(1000);
+    __disable_irq();
+    run();
+    __enable_irq();
+
+    uint32_t cur;
+    while ((cur = HAL_GetTick()) - tick < 10)
+      HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+    tick = cur;
   }
 }
+
+// Within tolerance of both WS2812 and WS2812B
+#define OUTPUT_BIT(_port, _bit, _set) do { \
+  uint32_t bit = (_bit); \
+  uint32_t wait = ((_set) ? 48 : 24); \
+  while ((TIM3->SR & TIM_SR_UIF) == 0) { } \
+  TIM3->SR = ~TIM_SR_UIF; \
+  (_port)->BSRR = bit; \
+  while (TIM3->CNT < wait) { } \
+  (_port)->BSRR = bit << 16; \
+} while (0)
+
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+__attribute__ ((section(".RamFunc")))
+void run()
+{
+  static uint32_t frame = 0, frame_subdiv = 0;
+  if (++frame_subdiv == 8) {
+    frame_subdiv = 0;
+    frame++;
+    if (frame == 9) frame = 0;
+  }
+
+#define N 48
+  uint8_t buf[N][3];
+  for (int i = 0, f = frame; i < N; i++, f = (f == 8 ? 0 : f + 1)) {
+    uint8_t g = 0, r = 0, b = 0;
+
+    static const uint8_t seq[9][3] = {
+      {3, 0, 0},
+      {2, 1, 0},
+      {1, 2, 0},
+      {0, 3, 0},
+      {0, 2, 1},
+      {0, 1, 2},
+      {0, 0, 3},
+      {1, 0, 2},
+      {2, 0, 1},
+    };
+    uint8_t f1 = (f == 8 ? 0 : f + 1);
+    g = (seq[f][0] * (8 - frame_subdiv) + seq[f1][0] * frame_subdiv) + 1;
+    r = (seq[f][1] * (8 - frame_subdiv) + seq[f1][1] * frame_subdiv) + 1;
+    b = (seq[f][2] * (8 - frame_subdiv) + seq[f1][2] * frame_subdiv) + 1;
+
+    buf[i][0] = g;
+    buf[i][1] = r;
+    buf[i][2] = b;
+  }
+
+  TIM3->SR = ~TIM_SR_UIF;
+  for (int i = 0; i < N; i++) {
+    // G
+    uint8_t g = buf[i][0];
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 16);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 8);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 4);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 2);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 1);
+    // R
+    uint8_t r = buf[i][1];
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 16);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 8);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 4);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 2);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 1);
+    // B
+    uint8_t b = buf[i][2];
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 16);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 8);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 4);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 2);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 1);
+  }
+}
+#pragma GCC pop_options
 
 void SysTick_Handler()
 {
