@@ -1,3 +1,5 @@
 **/fp-info-cache
 **/*.bak
 **/~*.lck
+/fw/.pio/
+/misc/testrun_1_fw/.pio/
