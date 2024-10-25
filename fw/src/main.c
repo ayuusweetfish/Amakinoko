@@ -141,12 +141,12 @@ int main()
     .Instance = I2C1,
     .Init = {
       // RM0454 Rev 5, pp. 711, 726, 738 (examples), 766
-      // APB = 4 MHz      -- 0.25 us
-      // PRESC = 1        -- 0.5 us
-      // SCLH = SCLL = 7  -- 4 us  (125 kHz)
+      // APB = 64 MHz     -- 0.015625 us
+      // PRESC = 15       -- 0.25 us
+      // SCLH = SCLL = 4  -- 1.25 us  (400 kHz)
       // SCLDEL = SDADEL = 1
       // <PRESC>0<SCLDEL><SDADEL><SCLH>~<SCLL>~
-      .Timing = 0x10110707,
+      .Timing = 0xF0110404,
       .AddressingMode = I2C_ADDRESSINGMODE_7BIT,
     },
   };
@@ -167,6 +167,9 @@ int main()
   check_device_ready(0b0100011 << 1, "BH1750FVI");
   check_device_ready(0b1000100 << 1, "SHT30");
   check_device_ready(0b1011100 << 1, "LPS22HH");
+
+  unsigned r1 = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t[]){0x00, 0x16}, 2, 1000);
+  swv_printf("write %u %u\n", r1, i2c1.ErrorCode);
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
