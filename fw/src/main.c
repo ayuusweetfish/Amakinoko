@@ -112,6 +112,7 @@ int main()
   clk_init.APB1CLKDivider = RCC_HCLK_DIV4;      // 4 MHz
   HAL_RCC_ClockConfig(&clk_init, FLASH_LATENCY_0);
 
+if (0) {
   // ======== I2C ========
   __HAL_RCC_I2C1_CLK_ENABLE();
   i2c1 = (I2C_HandleTypeDef){
@@ -144,8 +145,19 @@ int main()
   check_device_ready(0b0100011 << 1, "BH1750FVI");
   check_device_ready(0b1000100 << 1, "SHT30");
   check_device_ready(0b1011100 << 1, "LPS22HH");
+}
 
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
+  HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_9,
+    .Mode = GPIO_MODE_OUTPUT_OD,
+    .Pull = GPIO_PULLUP,
+    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+  });
+
+  bool parity = 0;
   while (1) {
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, parity ^= 1);
     swv_printf("hello\n");
     HAL_Delay(1000);
   }
