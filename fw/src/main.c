@@ -154,7 +154,7 @@ int main()
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_6 | GPIO_PIN_7,
     .Alternate = GPIO_AF6_I2C1,
-    .Mode = GPIO_MODE_AF_PP,
+    .Mode = GPIO_MODE_AF_OD,
     .Pull = GPIO_PULLUP,
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
@@ -175,39 +175,33 @@ int main()
   swv_printf("%u %u\n", r1, i2c1.ErrorCode);
   HAL_Delay(10);
 
-  // CTRL_REG2: ONE_SHOT
-  r1 = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00000001}, 1, 1000);
-  HAL_Delay(1100);
+  // CTRL_REG2: IF_ADD_INC | ONE_SHOT
+  r1 = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00010001}, 1, 1000);
+  HAL_Delay(10);
 
   uint8_t buf[5] = { 0 };
   r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x0f, I2C_MEMADD_SIZE_8BIT, buf, 1, 1000);
   swv_printf("%u %u id = %02x\n", r1, i2c1.ErrorCode, buf[0]); // 0 0 b3
 
   // STATUS
-  r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf + 0, 1, 1000);
-  swv_printf("%u %u status = %02x\n", r1, i2c1.ErrorCode, buf[0]);
-
-  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x28, I2C_MEMADD_SIZE_8BIT, buf + 0, 1, 1000);
-  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x29, I2C_MEMADD_SIZE_8BIT, buf + 1, 1, 1000);
-  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x2a, I2C_MEMADD_SIZE_8BIT, buf + 2, 1, 1000);
-  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x2b, I2C_MEMADD_SIZE_8BIT, buf + 3, 1, 1000);
-  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x2c, I2C_MEMADD_SIZE_8BIT, buf + 4, 1, 1000);
+  r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf, 6, 1000);
+  uint8_t status = buf[0] & 0x03; // T_DA | P_DA
   uint32_t reading_p =
-    ((uint32_t)buf[0] <<  0) |
-    ((uint32_t)buf[1] <<  8) |
-    ((uint32_t)buf[2] << 16);
+    ((uint32_t)buf[1] <<  0) |
+    ((uint32_t)buf[2] <<  8) |
+    ((uint32_t)buf[3] << 16);
   uint32_t reading_t =
-    ((uint32_t)buf[3] <<  0) |
-    ((uint32_t)buf[4] <<  8);
-  swv_printf("%u %u %08x %08x\n", r1, i2c1.ErrorCode, reading_p, reading_t);
+    ((uint32_t)buf[4] <<  0) |
+    ((uint32_t)buf[5] <<  8);
+  swv_printf("%u %u %u %08x %08x\n", r1, i2c1.ErrorCode, status, reading_p, reading_t);
   swv_printf("p = %u Pa\nt = %u.%02u degC\n",
     reading_p * 100 / 4096,
     reading_t / 100, reading_t % 100);
 
-  HAL_Delay(4000);
+  HAL_Delay(20);
   r1 = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
-  swv_printf("%u %u %02x %02x\n", r1, i2c1.ErrorCode, buf[0], buf[1]);
-  // ??? After this the bus is stuck
+  uint16_t lx = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
+  swv_printf("%u %u %02x %02x\n%u lx\n", r1, i2c1.ErrorCode, buf[0], buf[1], lx);
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
