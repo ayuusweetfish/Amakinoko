@@ -168,20 +168,20 @@ int main()
   check_device_ready(0b1000100 << 1, "SHT30");
   check_device_ready(0b1011100 << 1, "LPS22HH");
 
-  unsigned r1 = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t[]){0x00, 0x16}, 2, 1000);
-  swv_printf("write %u %u\n", r1, i2c1.ErrorCode);
+while (1) {
+  unsigned r1;
+  // Clock stretching disabled, high repeatability
+  r1 = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t []){0x24, 0x00}, 2, 1000);
+  swv_printf("SHT30 write %u %u\n", r1, i2c1.ErrorCode);
 
   r1 = HAL_I2C_Master_Transmit(&i2c1, 0b0100011 << 1, (uint8_t []){0b00010011}, 1, 1000);
-  swv_printf("%u %u\n", r1, i2c1.ErrorCode);
-  HAL_Delay(10);
+  swv_printf("BH1750FVI write %u %u\n", r1, i2c1.ErrorCode);
 
   // CTRL_REG2: IF_ADD_INC | ONE_SHOT
   r1 = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00010001}, 1, 1000);
-  HAL_Delay(10);
+  HAL_Delay(20);
 
-  uint8_t buf[5] = { 0 };
-  r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x0f, I2C_MEMADD_SIZE_8BIT, buf, 1, 1000);
-  swv_printf("%u %u id = %02x\n", r1, i2c1.ErrorCode, buf[0]); // 0 0 b3
+  uint8_t buf[10] = { 0 };
 
   // STATUS
   r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf, 6, 1000);
@@ -198,10 +198,24 @@ int main()
     reading_p * 100 / 4096,
     reading_t / 100, reading_t % 100);
 
-  HAL_Delay(20);
   r1 = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
   uint16_t lx = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
   swv_printf("%u %u %02x %02x\n%u lx\n", r1, i2c1.ErrorCode, buf[0], buf[1], lx);
+
+{
+  r1 = HAL_I2C_Master_Receive(&i2c1, 0b1000100 << 1, buf, 6, 1000);
+  uint32_t reading_t = (((uint32_t)buf[0] << 8) | buf[1]);
+  uint32_t reading_h = (((uint32_t)buf[3] << 8) | buf[4]);
+  uint32_t cent_degC = -4500 + reading_t * 17500 / 65535;
+  uint32_t cent_hum = 10000 * reading_h / 65535;
+  swv_printf("%u %u %u %u\n", r1, i2c1.ErrorCode, reading_t, reading_h);
+  swv_printf("t = %u.%02u degC\nh = %3u.%02u %%\n",
+    cent_degC / 100, cent_degC % 100,
+    cent_hum / 100, cent_hum % 100);
+}
+
+  HAL_Delay(200);
+}
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
