@@ -171,6 +171,44 @@ int main()
   unsigned r1 = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t[]){0x00, 0x16}, 2, 1000);
   swv_printf("write %u %u\n", r1, i2c1.ErrorCode);
 
+  r1 = HAL_I2C_Master_Transmit(&i2c1, 0b0100011 << 1, (uint8_t []){0b00010011}, 1, 1000);
+  swv_printf("%u %u\n", r1, i2c1.ErrorCode);
+  HAL_Delay(10);
+
+  // CTRL_REG2: ONE_SHOT
+  r1 = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00000001}, 1, 1000);
+  HAL_Delay(1100);
+
+  uint8_t buf[5] = { 0 };
+  r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x0f, I2C_MEMADD_SIZE_8BIT, buf, 1, 1000);
+  swv_printf("%u %u id = %02x\n", r1, i2c1.ErrorCode, buf[0]); // 0 0 b3
+
+  // STATUS
+  r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf + 0, 1, 1000);
+  swv_printf("%u %u status = %02x\n", r1, i2c1.ErrorCode, buf[0]);
+
+  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x28, I2C_MEMADD_SIZE_8BIT, buf + 0, 1, 1000);
+  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x29, I2C_MEMADD_SIZE_8BIT, buf + 1, 1, 1000);
+  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x2a, I2C_MEMADD_SIZE_8BIT, buf + 2, 1, 1000);
+  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x2b, I2C_MEMADD_SIZE_8BIT, buf + 3, 1, 1000);
+  HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x2c, I2C_MEMADD_SIZE_8BIT, buf + 4, 1, 1000);
+  uint32_t reading_p =
+    ((uint32_t)buf[0] <<  0) |
+    ((uint32_t)buf[1] <<  8) |
+    ((uint32_t)buf[2] << 16);
+  uint32_t reading_t =
+    ((uint32_t)buf[3] <<  0) |
+    ((uint32_t)buf[4] <<  8);
+  swv_printf("%u %u %08x %08x\n", r1, i2c1.ErrorCode, reading_p, reading_t);
+  swv_printf("p = %u Pa\nt = %u.%02u degC\n",
+    reading_p * 100 / 4096,
+    reading_t / 100, reading_t % 100);
+
+  HAL_Delay(4000);
+  r1 = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
+  swv_printf("%u %u %02x %02x\n", r1, i2c1.ErrorCode, buf[0], buf[1]);
+  // ??? After this the bus is stuck
+
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_9,
@@ -207,37 +245,39 @@ int main()
 __attribute__ ((section(".RamFunc")))
 void run()
 {
+  static const uint8_t seq[9][3] = {
+    {3, 0, 0},
+    {2, 1, 0},
+    {1, 2, 0},
+    {0, 3, 0},
+    {0, 2, 1},
+    {0, 1, 2},
+    {0, 0, 3},
+    {1, 0, 2},
+    {2, 0, 1},
+  };
+  static const uint8_t seq_len = (sizeof seq) / (sizeof seq[0]);
+
   static uint32_t frame = 0, frame_subdiv = 0;
   if (++frame_subdiv == 8) {
     frame_subdiv = 0;
     frame++;
-    if (frame == 9) frame = 0;
+    if (frame == seq_len) frame = 0;
   }
 
 #define N 48
   uint8_t buf[N][3];
-  for (int i = 0, f = frame; i < N; i++, f = (f == 8 ? 0 : f + 1)) {
+  for (int i = 0, f = frame; i < N; i++, f = (f == seq_len - 1 ? 0 : f + 1)) {
     uint8_t g = 0, r = 0, b = 0;
 
-    static const uint8_t seq[9][3] = {
-      {3, 0, 0},
-      {2, 1, 0},
-      {1, 2, 0},
-      {0, 3, 0},
-      {0, 2, 1},
-      {0, 1, 2},
-      {0, 0, 3},
-      {1, 0, 2},
-      {2, 0, 1},
-    };
-    uint8_t f1 = (f == 8 ? 0 : f + 1);
+    uint8_t f1 = (f == seq_len - 1 ? 0 : f + 1);
     g = (seq[f][0] * (8 - frame_subdiv) + seq[f1][0] * frame_subdiv) + 1;
     r = (seq[f][1] * (8 - frame_subdiv) + seq[f1][1] * frame_subdiv) + 1;
     b = (seq[f][2] * (8 - frame_subdiv) + seq[f1][2] * frame_subdiv) + 1;
 
-    buf[i][0] = g;
-    buf[i][1] = r;
-    buf[i][2] = b;
+    buf[i][0] = g * 5;
+    buf[i][1] = r * 0;
+    buf[i][2] = b * 5;
   }
 
   TIM3->SR = ~TIM_SR_UIF;
@@ -245,8 +285,8 @@ void run()
     // G
     uint8_t g = buf[i][0];
     OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 64);
+    OUTPUT_BIT(GPIOB, 1 << 9, g & 32);
     OUTPUT_BIT(GPIOB, 1 << 9, g & 16);
     OUTPUT_BIT(GPIOB, 1 << 9, g & 8);
     OUTPUT_BIT(GPIOB, 1 << 9, g & 4);
@@ -255,8 +295,8 @@ void run()
     // R
     uint8_t r = buf[i][1];
     OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 64);
+    OUTPUT_BIT(GPIOB, 1 << 9, r & 32);
     OUTPUT_BIT(GPIOB, 1 << 9, r & 16);
     OUTPUT_BIT(GPIOB, 1 << 9, r & 8);
     OUTPUT_BIT(GPIOB, 1 << 9, r & 4);
@@ -265,8 +305,8 @@ void run()
     // B
     uint8_t b = buf[i][2];
     OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 64);
+    OUTPUT_BIT(GPIOB, 1 << 9, b & 32);
     OUTPUT_BIT(GPIOB, 1 << 9, b & 16);
     OUTPUT_BIT(GPIOB, 1 << 9, b & 8);
     OUTPUT_BIT(GPIOB, 1 << 9, b & 4);
