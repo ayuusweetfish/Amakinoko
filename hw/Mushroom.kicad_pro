@@ -173,8 +173,8 @@
           "td_curve_segcount": 5,
           "td_height_ratio": 1.0,
           "td_length_ratio": 1.0,
-          "td_maxheight": 5.0,
-          "td_maxlen": 5.0,
+          "td_maxheight": 10.0,
+          "td_maxlen": 10.0,
           "td_target_name": "td_track_end",
           "td_width_to_size_filter_ratio": 0.9
         }
