@@ -235,19 +235,6 @@ int main()
     return true;
   }
 
-  while (1) {
-    sensors_start();
-    HAL_Delay(20);
-    struct sensors_readings r;
-    bool valid = sensors_read(&r);
-    if (valid) {
-      swv_printf("p=%u t=%u %u h=%u i=%u\n", r.p, r.t1, r.t2, r.h, r.i);
-    } else {
-      swv_printf("Reading invalid! Check connections\n");
-    }
-    HAL_Delay(200);
-  }
-
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_9,
@@ -255,13 +242,27 @@ int main()
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
 
+  sensors_start();
+
   uint32_t tick = HAL_GetTick();
+  uint32_t last_sensors_start = tick;
   while (1) {
     __disable_irq();
     run();
     __enable_irq();
 
-    uint32_t cur;
+    uint32_t cur = HAL_GetTick();
+    if (cur >= last_sensors_start + 20) {
+      struct sensors_readings r;
+      bool valid = sensors_read(&r);
+      if (valid) {
+        swv_printf("p=%u t=%u %u h=%u i=%u\n", r.p, r.t1, r.t2, r.h, r.i);
+        sensors_start();
+        last_sensors_start = cur;
+      } else {
+        swv_printf("Reading invalid! Check connections\n");
+      }
+    }
     while ((cur = HAL_GetTick()) - tick < 10)
       HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
     tick = cur;
@@ -315,7 +316,7 @@ void run()
     b = (seq[f][2] * (8 - frame_subdiv) + seq[f1][2] * frame_subdiv) + 1;
 
     buf[i][0] = g * 5;
-    buf[i][1] = r * 0;
+    buf[i][1] = r * 5;
     buf[i][2] = b * 5;
   }
 
