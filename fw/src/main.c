@@ -320,6 +320,9 @@ void run()
     buf[i][2] = b * 5;
   }
 
+  GPIOB->BSRR = (1 << 9) << 16; // Reset code, drive low
+  delay_us(60); // Nominal length is 50 us, leave some tolerance
+
   TIM3->SR = ~TIM_SR_UIF;
   for (int i = 0; i < N; i++) {
     // G
@@ -353,6 +356,8 @@ void run()
     OUTPUT_BIT(GPIOB, 1 << 9, b & 2);
     OUTPUT_BIT(GPIOB, 1 << 9, b & 1);
   }
+
+  GPIOB->BSRR = (1 << 9); // Release line, write high, to avoid continuous current
 }
 #pragma GCC pop_options
 
