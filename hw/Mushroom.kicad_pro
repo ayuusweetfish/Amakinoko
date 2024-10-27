@@ -56,9 +56,6 @@
         }
       ],
       "drc_exclusions": [
-        "clearance|80442500|53997500|aa34f491-539c-43a5-ad93-aa50edea8a77|8581b312-0a1b-407c-955e-1c14ff828594",
-        "clearance|80492500|53022500|4e7a0fbe-931b-447d-b26c-489e8ef37478|adc903a1-4712-4645-918c-416cb2259e0e",
-        "clearance|81717500|53322500|808255c4-85f5-468f-a07d-9fe84f3e4cc9|86dde44f-949d-43df-9375-88db89a8815f",
         "courtyards_overlap|74680001|35278124|be6fa913-962d-4cd3-bb67-231addb02437|cadf1de6-91f9-4305-8c0d-9efb659dc169",
         "unconnected_items|75680000|32050000|bc126a80-6c6c-4b68-8c8d-f414954aa5b1|029fb7b6-92c6-42ef-81b8-9875e7c74d34",
         "unconnected_items|84320000|32050000|d1ded676-c301-4d31-9e20-d44bb8ef2c7d|bc126a80-6c6c-4b68-8c8d-f414954aa5b1",
@@ -429,7 +426,7 @@
     "classes": [
       {
         "bus_width": 12,
-        "clearance": 0.15,
+        "clearance": 0.1,
         "diff_pair_gap": 0.25,
         "diff_pair_via_gap": 0.25,
         "diff_pair_width": 0.2,
@@ -439,7 +436,7 @@
         "name": "Default",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.15,
+        "track_width": 0.1,
         "via_diameter": 0.6,
         "via_drill": 0.3,
         "wire_width": 6

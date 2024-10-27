@@ -1,3 +1,5 @@
+// Board is Rev. 1
+
 #include <stm32g0xx_hal.h>
 #include <assert.h>
 #include <math.h>
@@ -159,63 +161,92 @@ int main()
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
 
-  void check_device_ready(uint8_t addr, const char *name)
+  bool check_device_ready(uint8_t addr, const char *name)
   {
     HAL_StatusTypeDef device_ready = HAL_I2C_IsDeviceReady(&i2c1, addr, 3, 1000);
-    swv_printf("%s %u (%u)\n", name, (unsigned)device_ready, (unsigned)i2c1.ErrorCode);
+    if (device_ready != HAL_OK) {
+      swv_printf("%s %u (%u)\n", name, (unsigned)device_ready, (unsigned)i2c1.ErrorCode);
+      return false;
+    }
+    return true;
   }
   check_device_ready(0b0100011 << 1, "BH1750FVI");
   check_device_ready(0b1000100 << 1, "SHT30");
   check_device_ready(0b1011100 << 1, "LPS22HH");
 
-while (1) {
-  unsigned r1;
-  // Clock stretching disabled, high repeatability
-  r1 = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t []){0x24, 0x00}, 2, 1000);
-  swv_printf("SHT30 write %u %u\n", r1, i2c1.ErrorCode);
+  void sensors_start()
+  {
+    unsigned result;
 
-  r1 = HAL_I2C_Master_Transmit(&i2c1, 0b0100011 << 1, (uint8_t []){0b00010011}, 1, 1000);
-  swv_printf("BH1750FVI write %u %u\n", r1, i2c1.ErrorCode);
+    // LPS22HH: One-shot
+    // CTRL_REG2 = IF_ADD_INC | ONE_SHOT
+    result = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00010001}, 1, 1000);
+    if (result != HAL_OK) swv_printf("LPS22HH write %u %u\n", result, i2c1.ErrorCode);
 
-  // CTRL_REG2: IF_ADD_INC | ONE_SHOT
-  r1 = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00010001}, 1, 1000);
-  HAL_Delay(20);
+    // SHT30: Clock stretching disabled, high repeatability
+    result = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t []){0x24, 0x00}, 2, 1000);
+    if (result != HAL_OK) swv_printf("SHT30 write %u %u\n", result, i2c1.ErrorCode);
 
-  uint8_t buf[10] = { 0 };
+    // BH1750FVI: One Time L-Resolution Mode
+    result = HAL_I2C_Master_Transmit(&i2c1, 0b0100011 << 1, (uint8_t []){0b00100011}, 1, 1000);
+    if (result != HAL_OK) swv_printf("BH1750FVI write %u %u\n", result, i2c1.ErrorCode);
+  }
 
-  // STATUS
-  r1 = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf, 6, 1000);
-  uint8_t status = buf[0] & 0x03; // T_DA | P_DA
-  uint32_t reading_p =
-    ((uint32_t)buf[1] <<  0) |
-    ((uint32_t)buf[2] <<  8) |
-    ((uint32_t)buf[3] << 16);
-  uint32_t reading_t =
-    ((uint32_t)buf[4] <<  0) |
-    ((uint32_t)buf[5] <<  8);
-  swv_printf("%u %u %u %08x %08x\n", r1, i2c1.ErrorCode, status, reading_p, reading_t);
-  swv_printf("p = %u Pa\nt = %u.%02u degC\n",
-    reading_p * 100 / 4096,
-    reading_t / 100, reading_t % 100);
+  struct sensors_readings {
+    uint32_t p;   // (LPS22HH) Pressure (Pa)
+    uint32_t t1;  // (LPS22HH) Temperature (0.01 degC)
+    uint32_t t2;  // (SHT30) Temperature (0.01 degC)
+    uint32_t h;   // (SHT30) Humidity (0.01 %RH)
+    uint32_t i;   // (BH1750FVI) Illuminance (lx)
+  };
 
-  r1 = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
-  uint16_t lx = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
-  swv_printf("%u %u %02x %02x\n%u lx\n", r1, i2c1.ErrorCode, buf[0], buf[1], lx);
+  bool sensors_read(struct sensors_readings *r)
+  {
+    unsigned result;
+    uint8_t buf[10];
 
-{
-  r1 = HAL_I2C_Master_Receive(&i2c1, 0b1000100 << 1, buf, 6, 1000);
-  uint32_t reading_t = (((uint32_t)buf[0] << 8) | buf[1]);
-  uint32_t reading_h = (((uint32_t)buf[3] << 8) | buf[4]);
-  uint32_t cent_degC = -4500 + reading_t * 17500 / 65535;
-  uint32_t cent_hum = 10000 * reading_h / 65535;
-  swv_printf("%u %u %u %u\n", r1, i2c1.ErrorCode, reading_t, reading_h);
-  swv_printf("t = %u.%02u degC\nh = %3u.%02u %%\n",
-    cent_degC / 100, cent_degC % 100,
-    cent_hum / 100, cent_hum % 100);
-}
+    // LPS22HH
+    result = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf, 6, 1000);
+    if (result != HAL_OK) return false;
+    uint8_t status = buf[0] & 0x03; // STATUS should have T_DA | P_DA set
+    if (status != 0x03) return false;
+    uint32_t reading_p  =
+      ((uint32_t)buf[1] <<  0) |
+      ((uint32_t)buf[2] <<  8) |
+      ((uint32_t)buf[3] << 16);
+    uint32_t reading_t1 =
+      ((uint32_t)buf[4] <<  0) |
+      ((uint32_t)buf[5] <<  8);
+    r->p  = reading_p * 100 / 4096;
+    r->t1 = reading_t1;
 
-  HAL_Delay(200);
-}
+    // SHT30
+    result = HAL_I2C_Master_Receive(&i2c1, 0b1000100 << 1, buf, 6, 1000);
+    uint32_t reading_t2 = (((uint32_t)buf[0] << 8) | buf[1]);
+    uint32_t reading_h  = (((uint32_t)buf[3] << 8) | buf[4]);
+    r->t2 = -4500 + reading_t2 * 17500 / 65535;
+    r->h  = 10000 * reading_h / 65535;
+
+    // BH1750FVI
+    result = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
+    if (result != HAL_OK) return false;
+    r->i = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
+
+    return true;
+  }
+
+  while (1) {
+    sensors_start();
+    HAL_Delay(20);
+    struct sensors_readings r;
+    bool valid = sensors_read(&r);
+    if (valid) {
+      swv_printf("p=%u t=%u %u h=%u i=%u\n", r.p, r.t1, r.t2, r.h, r.i);
+    } else {
+      swv_printf("Reading invalid! Check connections\n");
+    }
+    HAL_Delay(200);
+  }
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
