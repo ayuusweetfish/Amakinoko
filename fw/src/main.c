@@ -75,6 +75,122 @@ static TIM_HandleTypeDef tim3;
 
 inline void run();
 
+// Pull a set of pins to a given level and set them as input
+static inline void pull_electrodes_port(GPIO_TypeDef *port, uint32_t pins, bool level)
+{
+  GPIO_InitTypeDef gpio_init = (GPIO_InitTypeDef){
+    .Mode = GPIO_MODE_OUTPUT_PP,
+    .Pin = pins,
+    .Pull = GPIO_NOPULL,
+    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+  };
+  HAL_GPIO_Init(port, &gpio_init);
+  HAL_GPIO_WritePin(port, pins, level);
+  gpio_init.Mode = GPIO_MODE_INPUT;
+  HAL_GPIO_Init(port, &gpio_init);
+}
+
+static inline void pull_electrodes(bool level)
+{
+  pull_electrodes_port(GPIOA,
+    GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3,
+    level);
+}
+
+#define N_ELECTRODES 4
+
+#define TOUCH_HARD_ON_THR  60
+#define TOUCH_SOFT_ON_THR  30
+#define TOUCH_OFF_THR      20
+
+#define BTN_OUT_PORT GPIOC
+#define BTN_OUT_PIN  GPIO_PIN_15
+#define INSPECT
+
+// #pragma GCC optimize("O3")
+static inline void cap_sense()
+{
+  struct record_t {
+    uint16_t t;
+    uint16_t v;
+  } record[16];
+
+  uint16_t cap[4] = { 0 };
+  uint16_t cap_sum[N_ELECTRODES] = { 0 };
+
+  static const uint16_t MASK[N_ELECTRODES] = {
+    1 <<  0,
+    1 <<  1,
+    1 <<  2,
+    1 <<  3,
+  };
+  static const uint16_t FULL_MASK =
+    MASK[ 0] | MASK[ 1] | MASK[ 2] | MASK[ 3];
+
+  inline void toggle(const bool level) {
+    pull_electrodes(1 - level); // Pull to the opposite level before reading
+    int n_records = 0;
+    uint16_t last_v = (level == 1 ? ~FULL_MASK : FULL_MASK);
+    record[n_records] = (struct record_t){.t = (uint16_t)-1, .v = last_v};
+    __disable_irq();
+    HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, level);
+    for (int i = 0; i < 100; i++) {
+      uint32_t combined_v = GPIOA->IDR;
+      uint16_t cur_v = (level == 1 ? (combined_v | last_v) : (combined_v & last_v));
+      if (last_v != cur_v) n_records++;
+      record[n_records] = (struct record_t){.t = i, .v = cur_v};
+      last_v = cur_v;
+    }
+    __enable_irq();
+    for (int j = 0; j < N_ELECTRODES; j++) cap[j] = 0xffff;
+    for (int i = 1; i <= n_records; i++) {
+      uint16_t t = record[i - 1].t + 1;
+      uint16_t diff = record[i - 1].v ^ record[i].v;
+      for (int j = 0; j < N_ELECTRODES; j++)
+        if (diff & MASK[j]) cap[j] = t;
+    }
+    for (int j = 0; j < N_ELECTRODES; j++)
+      if (cap_sum[j] == 0xffff || cap[j] == 0xffff) cap_sum[j] = 0xffff;
+      else cap_sum[j] += cap[j];
+  }
+  for (int its = 0; its < 5; its++) {
+    toggle(1);
+    toggle(0);
+  }
+
+  // Maintain a base value for each of the buttons
+
+  // The base value increases by 1 every 1000 iterations (a few seconds)
+  static const uint32_t BASE_MULT = 1024;
+  static uint32_t base[N_ELECTRODES] = { UINT32_MAX };
+  if (base[0] == UINT32_MAX) {
+    for (int j = 0; j < N_ELECTRODES; j++) base[j] = cap_sum[j] * BASE_MULT;
+  } else {
+    for (int j = 0; j < N_ELECTRODES; j++) {
+      base[j] += 1;
+      if (base[j] > cap_sum[j] * BASE_MULT)
+        base[j] = cap_sum[j] * BASE_MULT;
+    }
+  }
+  for (int j = 0; j < N_ELECTRODES; j++) cap_sum[j] -= base[j] / BASE_MULT;
+
+  // A button is considered turned-on, if its sensed value exceeds `TOUCH_HARD_ON_THR`
+
+  static bool btns[N_ELECTRODES] = { false };
+  for (int j = 0; j < N_ELECTRODES; j++) {
+    if (!btns[j]) {
+      if (cap_sum[j] > TOUCH_HARD_ON_THR) btns[j] = true;
+    } else {
+      if (cap_sum[j] < TOUCH_OFF_THR) btns[j] = false;
+    }
+  }
+
+#ifdef INSPECT
+  for (int j = 0; j < N_ELECTRODES; j++) swv_printf("%3d%c", cap_sum[j] < 999 ? cap_sum[j] : 999, j == N_ELECTRODES - 1 ? '\n' : ' ');
+  // for (int j = 0; j < N_ELECTRODES; j++) swv_printf("%d%c", (int)btns[j], j == N_ELECTRODES - 1 ? '\n' : ' ');
+#endif
+}
+
 int main()
 {
   HAL_Init();
@@ -121,6 +237,24 @@ int main()
   clk_init.AHBCLKDivider = RCC_SYSCLK_DIV1;         // 64 MHz
   clk_init.APB1CLKDivider = RCC_HCLK_DIV1;          // 64 MHz
   HAL_RCC_ClockConfig(&clk_init, FLASH_LATENCY_2);
+
+  // ======== Capacitive touch sensing ========
+  // BTN_OUT
+  gpio_init = (GPIO_InitTypeDef){
+    .Pin = BTN_OUT_PIN,
+    .Mode = GPIO_MODE_OUTPUT_PP,
+    .Pull = GPIO_NOPULL,
+    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+  };
+  HAL_GPIO_Init(BTN_OUT_PORT, &gpio_init);
+  HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, 0);
+
+  // For the electrodes, refer to `pull_electrodes()`
+
+  while (1) {
+    cap_sense();
+    HAL_Delay(100);
+  }
 
   // ======== Timer ========
   __HAL_RCC_TIM3_CLK_ENABLE();
