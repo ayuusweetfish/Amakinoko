@@ -98,17 +98,12 @@ static inline void pull_electrodes(bool level)
 }
 
 #define N_ELECTRODES 4
-
-#define TOUCH_HARD_ON_THR  60
-#define TOUCH_SOFT_ON_THR  30
-#define TOUCH_OFF_THR      20
-
 #define BTN_OUT_PORT GPIOC
 #define BTN_OUT_PIN  GPIO_PIN_15
-#define INSPECT
 
-// #pragma GCC optimize("O3")
-static inline void cap_sense()
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
 {
   struct record_t {
     uint16_t t;
@@ -116,7 +111,7 @@ static inline void cap_sense()
   } record[16];
 
   uint16_t cap[4] = { 0 };
-  uint16_t cap_sum[N_ELECTRODES] = { 0 };
+  for (int i = 0; i < N_ELECTRODES; i++) cap_sum[i] = 0;
 
   static const uint16_t MASK[N_ELECTRODES] = {
     1 <<  0,
@@ -160,36 +155,25 @@ static inline void cap_sense()
 
   // Maintain a base value for each of the buttons
 
-  // The base value increases by 1 every 1000 iterations (a few seconds)
-  static const uint32_t BASE_MULT = 1024;
+  // The base value increases by 1 every 16 iterations (~ 0.5 second)
+  static const uint32_t BASE_MULT = 16;
   static uint32_t base[N_ELECTRODES] = { UINT32_MAX };
   if (base[0] == UINT32_MAX) {
     for (int j = 0; j < N_ELECTRODES; j++) base[j] = cap_sum[j] * BASE_MULT;
   } else {
     for (int j = 0; j < N_ELECTRODES; j++) {
       base[j] += 1;
-      if (base[j] > cap_sum[j] * BASE_MULT)
-        base[j] = cap_sum[j] * BASE_MULT;
+      uint32_t lower = cap_sum[j] * BASE_MULT;
+      if (base[j] > lower)
+        base[j] = lower + (base[j] - lower) * 3 / 4;
     }
   }
-  for (int j = 0; j < N_ELECTRODES; j++) cap_sum[j] -= base[j] / BASE_MULT;
-
-  // A button is considered turned-on, if its sensed value exceeds `TOUCH_HARD_ON_THR`
-
-  static bool btns[N_ELECTRODES] = { false };
   for (int j = 0; j < N_ELECTRODES; j++) {
-    if (!btns[j]) {
-      if (cap_sum[j] > TOUCH_HARD_ON_THR) btns[j] = true;
-    } else {
-      if (cap_sum[j] < TOUCH_OFF_THR) btns[j] = false;
-    }
+    uint32_t base_scaled = base[j] / BASE_MULT;
+    cap_sum[j] = (cap_sum[j] > base_scaled ? cap_sum[j] - base_scaled : 0);
   }
-
-#ifdef INSPECT
-  for (int j = 0; j < N_ELECTRODES; j++) swv_printf("%3d%c", cap_sum[j] < 999 ? cap_sum[j] : 999, j == N_ELECTRODES - 1 ? '\n' : ' ');
-  // for (int j = 0; j < N_ELECTRODES; j++) swv_printf("%d%c", (int)btns[j], j == N_ELECTRODES - 1 ? '\n' : ' ');
-#endif
 }
+#pragma GCC pop_options
 
 int main()
 {
@@ -250,11 +234,6 @@ int main()
   HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, 0);
 
   // For the electrodes, refer to `pull_electrodes()`
-
-  while (1) {
-    cap_sense();
-    HAL_Delay(100);
-  }
 
   // ======== Timer ========
   __HAL_RCC_TIM3_CLK_ENABLE();
@@ -388,9 +367,12 @@ int main()
     uint32_t cur = HAL_GetTick();
     if (cur >= last_sensors_start + 20) {
       struct sensors_readings r;
+      uint16_t cap[4];
+      cap_sense(cap);
       bool valid = sensors_read(&r);
       if (valid) {
-        swv_printf("p=%u t=%u %u h=%u i=%u\n", r.p, r.t1, r.t2, r.h, r.i);
+        swv_printf("p=%u t=%u %u h=%u i=%u | ", r.p, r.t1, r.t2, r.h, r.i);
+        for (int j = 0; j < 4; j++) swv_printf("%3d%c", cap[j] < 999 ? cap[j] : 999, j == 3 ? '\n' : ' ');
         sensors_start();
         last_sensors_start = cur;
       } else {
