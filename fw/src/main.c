@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "uxn.h"
+
 // #define RELEASE
 #ifndef RELEASE
 #define _release_inline
@@ -347,6 +349,18 @@ int main()
 
     return true;
   }
+
+  uxn_instance()->wst.dat[0x00] = 3;
+  uxn_instance()->wst.ptr = 0x01;
+  uint8_t *r = uxn_instance()->ram;
+  r[0x100] = 0x80;  // LIT AA
+  r[0x101] = 0xAA;
+  r[0x102] = 0x18;  // ADD
+  r[0x103] = 0x00;  // BRK
+  swv_printf("%08x\n", r);
+  uxn_eval(0x100);
+  swv_printf("%02x\n", uxn_instance()->wst.ptr);        // 01
+  swv_printf("%02x\n", uxn_instance()->wst.dat[0x00]);  // AD
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
