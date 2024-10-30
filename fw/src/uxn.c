@@ -20,7 +20,7 @@
 #define DEC(s) uxn.s.dat[--uxn.s.ptr]
 #define POx(o) if(_2) { PO2(o) } else PO1(o)
 #define PO1(o) o = _r ? DEC(rst) : DEC(wst);
-#define PO2(o) PO1(o) o |= (_r ? DEC(rst) : DEC(wst)) << 8;
+#define PO2(o) PO1(o) o |= (uint16_t)(_r ? DEC(rst) : DEC(wst)) << 8;
 #define PUx(i) if(_2) { c = (i); PU1(c >> 8) PU1(c) } else PU1(i)
 #define PU1(i) if(_r) INC(rst) = i; else INC(wst) = i;
 #define RP1(i) if(_r) INC(wst) = i; else INC(rst) = i;
@@ -28,8 +28,8 @@
 #define PUT(i) PU1(i[0]) if(_2) { PU1(i[1]) }
 #define DEI(i,o) o[0] = emu_dei(i); if(_2) o[1] = emu_dei(i + 1); PUT(o)
 #define DEO(i,j) emu_deo(i, j[0]); if(_2) emu_deo(i + 1, j[1]);
-#define PEK(i,o,m) o[0] = uxn.ram[i]; if(_2) o[1] = uxn.ram[(i + 1) & (m)]; PUT(o)
-#define POK(i,j,m) uxn.ram[i] = j[0]; if(_2) uxn.ram[(i + 1) & (m)] = j[1];
+#define PEK(i,o,m) o[0] = uxn.ram[(i) & (m)]; if(_2) o[1] = uxn.ram[(i + 1) & (m)]; PUT(o)
+#define POK(i,j,m) uxn.ram[(i) & (m)] = j[0]; if(_2) uxn.ram[(i + 1) & (m)] = j[1];
 
 static uxn_t uxn;
 
@@ -38,8 +38,8 @@ uxn_t *uxn_instance() { return &uxn; }
 #pragma GCC optimize("O3")
 int uxn_eval(uint16_t pc)
 {
-  int32_t a, b, c, x[2], y[2], z[2];
   for(;;) {
+    int_fast16_t a, b, c, x[2], y[2], z[2];
     switch(uxn.ram[pc++]) {
     /* BRK */ case 0x00: return 1;
     /* JCI */ case 0x20: if(DEC(wst)) { JMI break; } pc += 2; break;

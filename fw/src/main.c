@@ -350,17 +350,34 @@ int main()
     return true;
   }
 
-  uxn_instance()->wst.dat[0x00] = 3;
-  uxn_instance()->wst.ptr = 0x01;
   uint8_t *r = uxn_instance()->ram;
-  r[0x100] = 0x80;  // LIT AA
-  r[0x101] = 0xAA;
-  r[0x102] = 0x18;  // ADD
-  r[0x103] = 0x00;  // BRK
-  swv_printf("%08x\n", r);
-  uxn_eval(0x100);
-  swv_printf("%02x\n", uxn_instance()->wst.ptr);        // 01
-  swv_printf("%02x\n", uxn_instance()->wst.dat[0x00]);  // AD
+  uint16_t pc = 0x100;
+  r[pc++] = 0xA0;  // LIT2 02 00
+  r[pc++] = 0x02;
+  r[pc++] = 0x00;
+  r[pc++] = 0x14;  // LDA
+  r[pc++] = 0x18;  // ADD
+  r[pc++] = 0xA0;  // LIT2 42 00 ( This wraps around, modulo 2048 = 0x800 )
+  r[pc++] = 0x42;
+  r[pc++] = 0x00;
+  r[pc++] = 0x95;  // STAk
+  r[pc++] = 0x22;  // POP2
+  r[pc++] = 0x00;  // BRK
+  for (int i = 0; i < 10; i++) {
+    uxn_instance()->wst.dat[0x00] = i;
+    uxn_instance()->wst.ptr = 0x01;
+    uxn_eval(0x100);
+    swv_printf("%02x %02x %02x\n", uxn_instance()->wst.ptr, uxn_instance()->wst.dat[0x00], r[0x200]);
+  }
+  // 1e6 ~ 2e6 instructions per second
+  for (int i = 0; i < 256; i++) {
+    uint8_t opcode = i & 0x1f;
+    r[i] = opcode == 0x00 || (opcode >= 0x0c && opcode <= 0x0f) || (opcode == 0x11 || opcode == 0x13 || opcode == 0x15) ? 0x18 : i;
+  }
+  r[256] = 0x00;
+  uint32_t t0 = HAL_GetTick();
+  for (int i = 0; i < 10000; i++) uxn_eval(0x0);
+  swv_printf("%u\n", HAL_GetTick() - t0); // ~2000
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
