@@ -1,0 +1,3 @@
+[submodule "cfg/libui"]
+	path = cfg/libui
+	url = https://github.com/andlabs/libui.git
