@@ -354,7 +354,7 @@ int main()
   static mumu_vm_t m;
 
   static const uint32_t c[] = {
-    0x300000ff, // addsn 0, 0, -1
+    0x21000001, // subn 0, 0, 1
     0x00000000, // sc 0
   };
   m.c = c;
@@ -366,7 +366,7 @@ int main()
   swv_printf("%08x\n", m.m[0]); // 0xaa5587ff
 
   static uint32_t c2[100] = { 0 };
-  for (int i = 0; i < 99; i++) c2[i] = 0x300000ff;
+  for (int i = 0; i < 99; i++) c2[i] = 0x21000001;
   m.c = c2;
   m.m[0] = 0x00000000;
   uint32_t t0 = HAL_GetTick();
@@ -374,7 +374,8 @@ int main()
     m.pc = 0;
     mumu_run(&m);
   }
-  swv_printf("%u\n", HAL_GetTick() - t0); // 1224 = 817k instructions per second
+  swv_printf("%u\n", HAL_GetTick() - t0); // 727 = 1.37M instructions per second
+  swv_printf("%08x\n", m.m[0]); // -99 * 10000 = 0xfff0e4d0
 
 if (0) {
   uint8_t *r = uxn_instance()->ram;

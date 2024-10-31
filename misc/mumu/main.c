@@ -6,7 +6,7 @@ int main()
   static mumu_vm_t m;
 
   static const uint32_t c[] = {
-    0x300000ff, // addsn 0, 0, -1
+    0x21000001, // subn 0, 0, 1
     0x00000000, // sc 0
   };
   m.c = c;

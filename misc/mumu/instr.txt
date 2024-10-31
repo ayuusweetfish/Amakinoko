@@ -3,11 +3,11 @@ Registers
 - Program counter
 
 Arithmetic
-# 1x - op, 2x - n, 3x - sn, 4x - i, 5x - si, 6x - hi
-<op>      <A> <B> <C>     A := B (op) C
-<op><s>n  <A> <B> <Imm8>  A := B (op) Imm8
-<op><s>i  <A> <Imm16>     A := A (op) Imm16
-<op>hi    <A> <Imm16>     A := A (op) (Imm16 << 16)
+# 1x - op, 2x - n, 3x - i, 4x - hi
+<op>    <A> <B> <C>     A := B (op) C
+<op>n   <A> <B> <Imm8>  A := B (op) Imm8
+<op>i   <A> <Imm16>     A := A (op) Imm16
+<op>hi  <A> <Imm16>     A := A (op) (Imm16 << 16)
 - add/sub/mul
   and/or/xor/bic/lsr/asr/lsl(asl)
 
