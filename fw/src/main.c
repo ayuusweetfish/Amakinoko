@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include "uxn.h"
+#include "../../misc/mumu/mumu.h"
 
 // #define RELEASE
 #ifndef RELEASE
@@ -350,6 +351,32 @@ int main()
     return true;
   }
 
+  static mumu_vm_t m;
+
+  static const uint32_t c[] = {
+    0x300000ff, // addsn 0, 0, -1
+    0x00000000, // sc 0
+  };
+  m.c = c;
+  m.pc = 0;
+
+  m.m[0] = 0xaa558800;
+  swv_printf("running!\n");
+  mumu_run(&m);
+  swv_printf("%08x\n", m.m[0]); // 0xaa5587ff
+
+  static uint32_t c2[100] = { 0 };
+  for (int i = 0; i < 99; i++) c2[i] = 0x300000ff;
+  m.c = c2;
+  m.m[0] = 0x00000000;
+  uint32_t t0 = HAL_GetTick();
+  for (int i = 0; i < 10000; i++) {
+    m.pc = 0;
+    mumu_run(&m);
+  }
+  swv_printf("%u\n", HAL_GetTick() - t0); // 1224 = 817k instructions per second
+
+if (0) {
   uint8_t *r = uxn_instance()->ram;
   uint16_t pc = 0x100;
   r[pc++] = 0xA0;  // LIT2 02 00
@@ -378,6 +405,7 @@ int main()
   uint32_t t0 = HAL_GetTick();
   for (int i = 0; i < 10000; i++) uxn_eval(0x0);
   swv_printf("%u\n", HAL_GetTick() - t0); // ~2000
+}
 
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){

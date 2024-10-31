@@ -1,0 +1,34 @@
+Registers
+- General purpose 0x00~0xff
+- Program counter
+
+Arithmetic
+# 1x - op, 2x - n, 3x - sn, 4x - i, 5x - si, 6x - hi
+<op>      <A> <B> <C>     A := B (op) C
+<op><s>n  <A> <B> <Imm8>  A := B (op) Imm8
+<op><s>i  <A> <Imm16>     A := A (op) Imm16
+<op>hi    <A> <Imm16>     A := A (op) (Imm16 << 16)
+- add/sub/mul
+  and/or/xor/bic/lsr/asr/lsl(asl)
+
+Memory
+# 7x
+ld<sz>    <A> <B> <Imm8>  A := [B + Imm8]
+st<sz>    <A> <B> <Imm8>  [B + Imm8] := A
+ldc<sz>   <A> <B> <Imm8>  A := ROM[B + Imm8]
+ldcr<sz>  <A> <B> <Imm8>  A := ROM[PC + B + Imm8]
+- b/s/w
+# push    <A> <B>         B := B - 4, [B] := A
+# pop     <A> <B>         A := [B], B := B + 4
+
+Control flow
+# 8x - br, 9x - bri, Ax - ba
+br<cond>  <A> <B> <C>     PC := PC + C
+bri<cond> <A> <B> <Imm8>  PC := PC + Imm8
+ba<cond>  <A> <B> <C>     PC := C
+- eq/ne/gt/lt/ge/le/ugt/ult/uge/ule
+b         <Imm24>         PC := Imm24
+
+System
+# 0x
+sc  <Imm24>
