@@ -351,7 +351,7 @@ int main()
     return true;
   }
 
-if (0) {
+if (1) {
   static mumu_vm_t m;
 
   static const uint32_t c[] = {
@@ -375,7 +375,7 @@ if (0) {
     m.pc = 0;
     mumu_run(&m);
   }
-  swv_printf("%u\n", HAL_GetTick() - t0); // 867 = 1.15M instructions per second
+  swv_printf("%u\n", HAL_GetTick() - t0); // 961 = 1.04M instructions per second
   swv_printf("%08x\n", m.m[0]); // -99 * 10000 = 0xfff0e4d0
 }
 

@@ -26,7 +26,7 @@ Control flow
 br<cond>  <A> <B> <C>     PC := PC + C
 bri<cond> <A> <B> <Imm8>  PC := PC + Imm8
 ba<cond>  <A> <B> <C>     PC := C
-- eq/ne/gt/lt/ge/le/ugt/ult/uge/ule
+- eq/ne/gt/lt/ge/le/sgt/slt/sge/sle
 b         <Imm24>         PC := Imm24
 
 System
