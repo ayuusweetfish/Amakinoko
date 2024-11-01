@@ -357,13 +357,19 @@ if (1) {
   static const uint32_t c[] = {
     0x30010000, // movi 1, 0
     0x30020001, // movi 2, 1
-    0x30040000, // movi 4, 0
+    0x30040001, // movi 4, 1
+    0x30050000, // movi 5, 0
+    0x95000404, // brile 0, 4, Bf
                 // A:
-    0x10030101, // mov 3, 1
-    0x10010202, // mov 1, 2
-    0x11020103, // add 2, 1, 3
-    0x32000001, // subi 0, 1
-    0x910004fb, // brine 0, 4, Ab
+    0x11010102, // add 1, 2
+    0x11020201, // add 2, 1
+    0x32000002, // subi 0, 2
+    0x920004fc, // brigt 0, 4, Ab
+                // B:
+    0x90000502, // brie 0, 5, Cf
+    0x10000202, // mov 0, 2
+    0x00000000, // sc 0
+                // C:
     0x10000101, // mov 0, 1
     0x00000000, // sc 0
   };
@@ -374,9 +380,9 @@ if (1) {
   for (int i = 0; i < 10000; i++) {
     m.pc = 0;
     m.m[0] = 15;
-    mumu_run(&m); // 80 instructions
+    mumu_run(&m); // 36 instructions
   }
-  swv_printf("%u\n", HAL_GetTick() - t0); // 758 = 1.05M instructions per second
+  swv_printf("%u\n", HAL_GetTick() - t0); // 352 = 1M instructions per second
   swv_printf("%08x\n", m.m[0]); // 610 = 0x00000262
 }
 
