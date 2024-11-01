@@ -374,7 +374,7 @@ int main()
     m.pc = 0;
     mumu_run(&m);
   }
-  swv_printf("%u\n", HAL_GetTick() - t0); // 727 = 1.37M instructions per second
+  swv_printf("%u\n", HAL_GetTick() - t0); // 1105
   swv_printf("%08x\n", m.m[0]); // -99 * 10000 = 0xfff0e4d0
 
 if (0) {
