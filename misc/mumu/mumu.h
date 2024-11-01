@@ -13,7 +13,9 @@ typedef struct {
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
+#if __arm__
 __attribute__ ((section(".RamFunc")))
+#endif
 void mumu_run(mumu_vm_t *restrict m)
 {
 #define RAM(_n) m->m[(_n) & (MUMU_RAM_SIZE - 1)]
@@ -22,6 +24,7 @@ void mumu_run(mumu_vm_t *restrict m)
   uint32_t pc = m->pc;
   while (1) {
     uint32_t instr = m->c[(pc++) & (MUMU_ROM_SIZE - 1)];
+    // printf("%08x | %08x %08x %08x %08x\n", instr, RAM(0), RAM(1), RAM(2), RAM(3));
     uint8_t opcode = instr >> 24;
     uint8_t ty = opcode >> 4;
     switch (ty) {
@@ -35,13 +38,17 @@ void mumu_run(mumu_vm_t *restrict m)
                     (((instr >> 0) & 0xFFFF) << 16)
       );
       uint32_t result = (
-        op == 0x0 ? (opnd_1 + opnd_2) :
-        op == 0x1 ? (opnd_1 - opnd_2) :
-        op == 0x2 ? (opnd_1 * opnd_2) :
-        op == 0x3 ? (opnd_1 & opnd_2) :
-        op == 0x4 ? (opnd_1 | opnd_2) :
-        op == 0x5 ? (opnd_1 ^ opnd_2) :
-        op == 0x6 ? (opnd_1 & ~opnd_2) :
+        op == 0x0 ? opnd_2 :
+        op == 0x1 ? (opnd_1 + opnd_2) :
+        op == 0x2 ? (opnd_1 - opnd_2) :
+        op == 0x3 ? (opnd_1 * opnd_2) :
+        op == 0x4 ? (opnd_1 & opnd_2) :
+        op == 0x5 ? (opnd_1 | opnd_2) :
+        op == 0x6 ? (opnd_1 ^ opnd_2) :
+        op == 0x7 ? (opnd_1 & ~opnd_2) :
+        op == 0x8 ? (opnd_1 >> (opnd_2 & 31)) :
+        op == 0x9 ? (uint32_t)(((int32_t)opnd_1) >> (opnd_2 & 31)) :
+        op == 0xA ? (opnd_1 << (opnd_2 & 31)) :
                     0
       );
       m->m[(instr >> 16) & 0xFF] = result;
@@ -82,7 +89,7 @@ void mumu_run(mumu_vm_t *restrict m)
       );
       if (result) {
         pc = (ty == 0x8 ? pc + RAM(c) :
-              ty == 0x9 ? pc + c :
+              ty == 0x9 ? pc + (int8_t)c :
                           RAM(c));
       }
     }

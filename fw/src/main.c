@@ -355,7 +355,7 @@ if (1) {
   static mumu_vm_t m;
 
   static const uint32_t c[] = {
-    0x21000001, // subn 0, 0, 1
+    0x22000001, // subn 0, 0, 1
     0x00000000, // sc 0
   };
   m.c = c;
@@ -367,7 +367,7 @@ if (1) {
   swv_printf("%08x\n", m.m[0]); // 0xaa5587ff
 
   static uint32_t c2[100] = { 0 };
-  for (int i = 0; i < 99; i++) c2[i] = 0x21000001;
+  for (int i = 0; i < 99; i++) c2[i] = 0x22000001;
   m.c = c2;
   m.m[0] = 0x00000000;
   uint32_t t0 = HAL_GetTick();
