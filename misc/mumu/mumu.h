@@ -75,21 +75,22 @@ void mumu_run(mumu_vm_t *restrict m)
       uint8_t c = (instr >> 0) & 0xFF;
       uint8_t op = opcode & 0xF;
       uint8_t result = (
-        op == 0x0 ? opnd_1 == opnd_2 :
-        op == 0x1 ? opnd_1 != opnd_2 :
-        op == 0x2 ? opnd_1 >  opnd_2 :
-        op == 0x3 ? opnd_1 <  opnd_2 :
-        op == 0x4 ? opnd_1 >= opnd_2 :
-        op == 0x5 ? opnd_1 <= opnd_2 :
-        op == 0x6 ? (int32_t)opnd_1 >  (int32_t)opnd_2 :
-        op == 0x7 ? (int32_t)opnd_1 <  (int32_t)opnd_2 :
-        op == 0x8 ? (int32_t)opnd_1 >= (int32_t)opnd_2 :
-        op == 0x9 ? (int32_t)opnd_1 <= (int32_t)opnd_2 :
+        op == 0x0 ? 1 :
+        op == 0x1 ? opnd_1 == opnd_2 :
+        op == 0x2 ? opnd_1 != opnd_2 :
+        op == 0x3 ? opnd_1 >  opnd_2 :
+        op == 0x4 ? opnd_1 <  opnd_2 :
+        op == 0x5 ? opnd_1 >= opnd_2 :
+        op == 0x6 ? opnd_1 <= opnd_2 :
+        op == 0x7 ? (int32_t)opnd_1 >  (int32_t)opnd_2 :
+        op == 0x8 ? (int32_t)opnd_1 <  (int32_t)opnd_2 :
+        op == 0x9 ? (int32_t)opnd_1 >= (int32_t)opnd_2 :
+        op == 0xA ? (int32_t)opnd_1 <= (int32_t)opnd_2 :
                     0
       );
       if (result) {
-        pc = (ty == 0x8 ? pc + RAM(c) :
-              ty == 0x9 ? pc + (int8_t)c :
+        pc = (ty == 0x8 ? pc + (int8_t)c :
+              ty == 0x9 ? pc + RAM(c) :
                           RAM(c));
       }
     }

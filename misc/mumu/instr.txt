@@ -1,34 +1,32 @@
-Registers
-- General purpose 0x00~0xff
-- Program counter
+- RAM & ROM unit of 4 bytes
+- Harvard architecture, program executes from ROM
+- General purpose registers 0x00~0xff shared with RAM
+- Program counter PC invisible from program
+- Instruction encoding is 4-byte; the first byte is opcode
 
 Arithmetic
-# 1x - op, 2x - n, 3x - i, 4x - hi
+# opcode: 1x - op, 2x - n, 3x - i, 4x - hi
 <op>    <A> <B> <C>     A := B (op) C
 <op>n   <A> <B> <Imm8>  A := B (op) Imm8
 <op>i   <A> <Imm16>     A := A (op) Imm16
 <op>hi  <A> <Imm16>     A := A (op) (Imm16 << 16)
-- mov/add/sub/mul
-  and/or/xor/bic/lsr/asr/lsl(asl)
+- <op>: mov/add/sub/mul/and/or/xor/bic/lsr/asr/lsl
+  - 'mov' returns the second operand
 
 Memory
-# 7x
-ld<sz>    <A> <B> <Imm8>  A := [B + Imm8]
-st<sz>    <A> <B> <Imm8>  [B + Imm8] := A
-ldc<sz>   <A> <B> <Imm8>  A := ROM[B + Imm8]
-ldcr<sz>  <A> <B> <Imm8>  A := ROM[PC + B + Imm8]
-- b/s/w
-# push    <A> <B>         B := B - 4, [B] := A
-# pop     <A> <B>         A := [B], B := B + 4
+# opcode: 7x
+ld    <A> <B> <Imm8>  A := [B + Imm8]
+st    <A> <B> <Imm8>  [B + Imm8] := A
+ldc   <A> <B> <Imm8>  A := ROM[B + Imm8]
+ldcr  <A> <B> <Imm8>  A := ROM[PC + B + Imm8]
 
 Control flow
-# 8x - br, 9x - bri, Ax - ba
-br<cond>  <A> <B> <C>     PC := PC + C
-bri<cond> <A> <B> <Imm8>  PC := PC + Imm8
+# opcode: 8x - br, 9x - brr, Ax - ba
+br<cond>  <A> <B> <Imm8>  PC := PC + Imm8
+brr<cond> <A> <B> <C>     PC := PC + C
 ba<cond>  <A> <B> <C>     PC := C
-- eq/ne/gt/lt/ge/le/sgt/slt/sge/sle
-b         <Imm24>         PC := Imm24
+- <cond>: al/eq/ne/gt/lt/ge/le/sgt/slt/sge/sle
 
 System
-# 0x
+# opcode: 0x
 sc  <Imm24>
