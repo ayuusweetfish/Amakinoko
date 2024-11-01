@@ -351,6 +351,7 @@ int main()
     return true;
   }
 
+if (0) {
   static mumu_vm_t m;
 
   static const uint32_t c[] = {
@@ -376,6 +377,7 @@ int main()
   }
   swv_printf("%u\n", HAL_GetTick() - t0); // 867 = 1.15M instructions per second
   swv_printf("%08x\n", m.m[0]); // -99 * 10000 = 0xfff0e4d0
+}
 
 if (0) {
   uint8_t *r = uxn_instance()->ram;
@@ -474,14 +476,14 @@ void run()
   };
   static const uint8_t seq_len = (sizeof seq) / (sizeof seq[0]);
 
+#define N 24
   static uint32_t frame = 0, frame_subdiv = 0;
   if (++frame_subdiv == 8) {
     frame_subdiv = 0;
     frame++;
-    if (frame == seq_len) frame = 0;
+    if (frame == seq_len /* N + 2 */) frame = 0;
   }
 
-#define N 48
   uint8_t buf[N][3];
   for (int i = 0, f = frame; i < N; i++, f = (f == seq_len - 1 ? 0 : f + 1)) {
     uint8_t g = 0, r = 0, b = 0;
@@ -495,6 +497,18 @@ void run()
     buf[i][1] = r * 5;
     buf[i][2] = b * 5;
   }
+if (0) {
+  for (int i = 0; i < N; i++) {
+    buf[i][0] = buf[i][1] = buf[i][2] = 0;
+  }
+  for (int i = 0; i < N; i++) if (i >= (int)frame - 2 && i <= frame) {
+    uint8_t value = 120;
+    if (i == (int)frame - 2) value = (7 - frame_subdiv) * 15;
+    if (i == frame + 0) value = frame_subdiv * 15;
+    buf[i][0] = value >> 1;
+    buf[i][2] = value;
+  }
+}
 
   GPIOB->BSRR = (1 << 9) << 16; // Reset code, drive low
   delay_us(60); // Nominal length is 50 us, leave some tolerance
