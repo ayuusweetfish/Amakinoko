@@ -20,7 +20,7 @@ void mumu_run(mumu_vm_t *m)
     uint32_t instr = m->c[(m->pc++) & (MUMU_ROM_SIZE - 1)];
     uint8_t opcode = instr >> 24;
     if (opcode >= 0x10 && opcode <= 0x4F) {
-      uint8_t ty = opcode >> 8;
+      uint8_t ty = opcode >> 4;
       uint8_t op = opcode & 0xF;
       uint32_t opnd_1 = (ty <= 2 ? m->m[(instr >> 8) & 0xFF] : m->m[(instr >> 16) & 0xFF]);
       uint32_t opnd_2 = (
@@ -41,7 +41,7 @@ void mumu_run(mumu_vm_t *m)
       );
       m->m[(instr >> 16) & 0xFF] = result;
     } else if (opcode == 0x00) {
-      uint32_t syscall = opcode & ((1 << 24) - 1);
+      uint32_t syscall = instr & ((1 << 24) - 1);
       if (syscall == 0) break;
     }
   }
