@@ -154,11 +154,14 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
 
   uint32_t backward_labels[26];
   for (uint8_t i = 0; i < 26; i++) backward_labels[i] = (uint32_t)-1;
+  uint32_t forward_patch[26][32], forward_patch_first_line[26];
+  uint8_t forward_patch_n[26] = { 0 };
 
-#define report_error(_fmt, ...) do { \
-  printf("line %u: " _fmt "\n", line_num, ##__VA_ARGS__); \
+#define report_error_line(_line, _fmt, ...) do { \
+  printf("line %u: " _fmt "\n", _line, ##__VA_ARGS__); \
   return n_assembled; \
 } while (0)
+#define report_error(_fmt, ...) report_error_line(line_num, _fmt, ##__VA_ARGS__)
 
 #define emit(_opcode, _v1, _v2, _v3) \
   (rom[n_assembled++] = ((_opcode) << 24) | ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
@@ -167,8 +170,10 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
 #define emit_24(_opcode, _v) (rom[n_assembled++] = ((_opcode) << 24) | (_v))
 
   while (1) {
-    while ((c = my_getchar()) != EOF && isspace(c)) { if (c == '\n') line_num++; }
+    while ((c = my_getchar()) != EOF && isspace(c)) { }
     if (c == EOF) break;
+
+    uint32_t start_line_num = line_num;
 
     // Mnemonic
     uint8_t trie_pos = 0;
@@ -188,7 +193,6 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
       if (len != 1) {
         report_error("Invalid label");
       } else {
-        printf("label %u\n", label_id);
         is_label = 1;
       }
     } else {
@@ -200,11 +204,17 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
     // Update labels
     if (is_label) {
       backward_labels[label_id] = n_assembled;
+      for (uint8_t i = 0; i < forward_patch_n[label_id]; i++) {
+        uint32_t addr = forward_patch[label_id][i];
+        if (n_assembled - (addr + 1) > 0xff)
+          report_error("Label too far away");
+        rom[addr] |= (n_assembled - (addr + 1));
+      }
+      forward_patch_n[label_id] = 0;
       continue;
     }
 
     // Operands
-    if (mnemonic != 0) printf("Mnemonic %u\n", mnemonic);
     uint8_t n_operands = 0;
     operand_t operands[3];
     while (1) {
@@ -214,7 +224,6 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
         report_error("Extraneous operand");
       } else {
         operands[n_operands++] = o;
-        printf("> operand %u %u\n", (unsigned)o.ty, (unsigned)o.n);
       }
     }
 
@@ -255,9 +264,17 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
           uint8_t offset = 0;
           if (operands[2].ty == LABEL_B) {
             uint32_t last = backward_labels[operands[2].n];
-            if (last == (uint32_t)-1 || last + 0x80 < n_assembled + 1)
+            if (last == (uint32_t)-1)
+              report_error("Label not found");
+            if (last + 0x80 < n_assembled + 1)
               report_error("Label too far away");
             offset = (last - (n_assembled + 1)) & 0xff;
+          } else {  // LABEL_F
+            if (forward_patch_n[operands[2].n] >= sizeof forward_patch[0])
+              report_error("Too many unresolved forward-referencing labels");
+            forward_patch[operands[2].n][forward_patch_n[operands[2].n]++] = n_assembled;
+            if (forward_patch_n[operands[2].n] == 1)
+              forward_patch_first_line[operands[2].n] = start_line_num;
           }
           emit(0x80 + (mnemonic - MN_BR), operands[0].n, operands[1].n, offset);
         } else {
@@ -275,6 +292,10 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
       }
     }
   }
+
+  for (uint8_t i = 0; i < 26; i++)
+    if (forward_patch_n[i] != 0)
+      report_error_line(forward_patch_first_line[i], "Label not found");
 
   return n_assembled;
 }
