@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include "mumu.h"
 
 int main()
@@ -25,6 +26,20 @@ int main()
     0x00000000, // sc 0
   };
   m.c = c;
+
+  for (int i = 0; i < 10; i++) {
+    m.m[0] = 60;
+    m.pc = 0;
+    mumu_run(&m);
+  }
+  clock_t t0 = clock();
+  for (int i = 0; i < 1000000; i++) {
+    m.m[0] = 60;
+    m.pc = 0;
+    mumu_run(&m);
+  }
+  float t = (double)(clock() - t0) / CLOCKS_PER_SEC;
+  printf("%.5lf %.5lf\n", t, 128 * 1000000 / t);  // ~68M instructions per second
 
   for (int i = 1; i <= 16; i++) {
     m.m[0] = i;
