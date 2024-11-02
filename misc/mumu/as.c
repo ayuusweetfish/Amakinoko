@@ -10,7 +10,7 @@ typedef struct {
     LABEL_F,
     NONE,
   } ty;
-  uint16_t n;
+  uint32_t n;
 } operand_t;
 
 typedef struct {
@@ -19,24 +19,38 @@ typedef struct {
   operand_t a, b, c;
 } instruction_t;
 
+static uint32_t line_num; // TODO: Refactor this, restricting `read_operand()` in the scope of `assemble()`
+
+static inline int my_getchar()
+{
+  int c = getchar();
+  if (c == '\n') line_num++;
+  return c;
+}
+static inline void my_ungetchar(int c)
+{
+  ungetc(c, stdin);
+  if (c == '\n') line_num--;
+}
+
 operand_t read_operand()
 {
   operand_t o;
   int c;
 
   // Find operand
-  while ((c = getchar()) != EOF && c != '\n' && c != '%' && c != '=' && !isalpha(c)) { }
+  while ((c = my_getchar()) != EOF && c != '\n' && c != '%' && c != '=' && !isalpha(c)) { }
   if (c == EOF || c == '\n') return (operand_t){ .ty = NONE, .n = 0 };
   if (c == '%' || c == '=') {
     o.ty = (c == '%' ? REGISTER : IMMEDIATE);
     uint32_t n = 0;
-    while ((c = getchar()) >= '0' && c <= '9') {
+    while ((c = my_getchar()) >= '0' && c <= '9') {
       n = n * 10 + (c - '0');
     }
     o.n = n;
-    ungetc(c, stdin);
+    my_ungetchar(c);
   } else if (isalpha(c)) {
-    int dir = getchar();
+    int dir = my_getchar();
     if (dir == 'b') {
       o.ty = LABEL_B;
     } else if (dir == 'f') {
@@ -45,23 +59,23 @@ operand_t read_operand()
       printf("Invalid direction %c\n", dir);
       return (operand_t){ .ty = NONE, .n = 0 };
     }
-    o.n = toupper(c) - 'A';
+    o.n = tolower(c) - 'a';
   }
 
   return o;
 }
 
 enum mnemonic_word {
-  MN_WORD_BASE = 0x80,
-  MN_MOV, MN_ADD, MN_SUB, MN_MUL,
+  MN_B_AL = 0x00, MN_B_EQ, MN_B_NE, MN_B_GT, MN_B_LT, MN_B_GE, MN_B_LE,
+  MN_B_SGT, MN_B_SLT, MN_B_SGE, MN_B_SLE,
+  MN_B_COUNT,
+
+  MN_MOV = 0x01, MN_ADD, MN_SUB, MN_MUL,
   MN_AND, MN_OR, MN_XOR, MN_BIC, MN_LSR, MN_ASR, MN_LSL,
   MN_LD, MN_ST, MN_LDC, MN_LDCR,
-  MN_BR, MN_BA,
+  MN_BR, MN_BR_END = MN_BR + MN_B_COUNT,
+  MN_BA, MN_BA_END = MN_BA + MN_B_COUNT,
   MN_SC,
-
-  MN_B_BASE = 0x40,
-  MN_B_AL, MN_B_EQ, MN_B_NE, MN_B_GT, MN_B_LT, MN_B_GE, MN_B_LE,
-  MN_B_SGT, MN_B_SLT, MN_B_SGE, MN_B_SLE,
 };
 static uint8_t mnemonic_trie[73][27];
 
@@ -134,11 +148,26 @@ static void init_trie()
 
 uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
 {
-  uint32_t len = 0;
+  uint32_t n_assembled = 0;
   int c;
+  line_num = 1;
+
+  uint32_t backward_labels[26];
+  for (uint8_t i = 0; i < 26; i++) backward_labels[i] = (uint32_t)-1;
+
+#define report_error(_fmt, ...) do { \
+  printf("line %u: " _fmt "\n", line_num, ##__VA_ARGS__); \
+  return n_assembled; \
+} while (0)
+
+#define emit(_opcode, _v1, _v2, _v3) \
+  (rom[n_assembled++] = ((_opcode) << 24) | ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
+#define emit_bh(_opcode, _v1, _v2) \
+  (rom[n_assembled++] = ((_opcode) << 24) | ((_v1) << 16) | ((_v2) << 0))
+#define emit_24(_opcode, _v) (rom[n_assembled++] = ((_opcode) << 24) | (_v))
 
   while (1) {
-    while ((c = getchar()) != EOF && isspace(c)) { }
+    while ((c = my_getchar()) != EOF && isspace(c)) { if (c == '\n') line_num++; }
     if (c == EOF) break;
 
     // Mnemonic
@@ -146,6 +175,7 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
     uint8_t mnemonic_valid = 1; // Cleared when a non-existent child is encountered
     uint8_t mnemonic = 0;       // Word tag
     uint8_t label_id = 0, len = 0;
+    uint8_t is_label = 0;
     do {
       c = tolower(c);
       trie_pos = mnemonic_trie[trie_pos][c - 'a' + 1];
@@ -153,29 +183,100 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
       if (trie_pos == 0) {
         mnemonic_valid = 0;
       }
-    } while ((c = getchar()) != EOF && isalpha(c));
+    } while ((c = my_getchar()) != EOF && isalpha(c));
     if (c == ':') {
       if (len != 1) {
-        printf("Invalid label\n");
+        report_error("Invalid label");
       } else {
         printf("label %u\n", label_id);
+        is_label = 1;
       }
     } else {
       if (!mnemonic_valid || (mnemonic = mnemonic_trie[trie_pos][0]) == 0) {
-        printf("Invalid mnemonic\n");
+        report_error("Invalid mnemonic");
       }
     }
 
+    // Update labels
+    if (is_label) {
+      backward_labels[label_id] = n_assembled;
+      continue;
+    }
+
     // Operands
-    if (mnemonic != 0) printf("Mnemonic %02x\n", mnemonic);
+    if (mnemonic != 0) printf("Mnemonic %u\n", mnemonic);
+    uint8_t n_operands = 0;
+    operand_t operands[3];
     while (1) {
       operand_t o = read_operand();
       if (o.ty == NONE) break;
-      printf("> operand %u %u\n", (unsigned)o.ty, (unsigned)o.n);
+      if (n_operands >= 3) {
+        report_error("Extraneous operand");
+      } else {
+        operands[n_operands++] = o;
+        printf("> operand %u %u\n", (unsigned)o.ty, (unsigned)o.n);
+      }
+    }
+
+    // Emit code
+    if (mnemonic_valid && mnemonic > 0) {
+      if (mnemonic >= MN_MOV && mnemonic <= MN_LSL) {
+        if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            operands[2].ty == REGISTER) {
+          emit(0x10 + (mnemonic - MN_MOV), operands[0].n, operands[1].n, operands[2].n);
+        } else if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            operands[2].ty == IMMEDIATE) {
+          emit(0x20 + (mnemonic - MN_MOV), operands[0].n, operands[1].n, operands[2].n);
+        } else if (n_operands == 2 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER) {
+          emit(0x10 + (mnemonic - MN_MOV), operands[0].n, operands[0].n, operands[1].n);
+        } else if (n_operands == 2 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == IMMEDIATE) {
+          emit_bh(0x30 + (mnemonic - MN_MOV), operands[0].n, operands[1].n);
+        } else {
+          report_error("Invalid operands");
+        }
+      } else if (mnemonic >= MN_BR && mnemonic < MN_BR_END) {
+        if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            operands[2].ty == REGISTER) {
+          emit(0x90 + (mnemonic - MN_BR), operands[0].n, operands[1].n, operands[2].n);
+        } else if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            (operands[2].ty == LABEL_B || operands[2].ty == LABEL_F)) {
+          uint8_t offset = 0;
+          if (operands[2].ty == LABEL_B) {
+            uint32_t last = backward_labels[operands[2].n];
+            if (last == (uint32_t)-1 || last + 0x80 < n_assembled + 1)
+              report_error("Label too far away");
+            offset = (last - (n_assembled + 1)) & 0xff;
+          }
+          emit(0x80 + (mnemonic - MN_BR), operands[0].n, operands[1].n, offset);
+        } else {
+          report_error("Invalid operands");
+        }
+      } else if (mnemonic == MN_SC) {
+        if (n_operands == 1 &&
+            operands[0].ty == IMMEDIATE) {
+          emit_24(0x00, operands[0].n);
+        } else {
+          report_error("Invalid operands");
+        }
+      } else {
+        report_error("Unsupported instruction");
+      }
     }
   }
 
-  return len;
+  return n_assembled;
 }
 
 int main()
