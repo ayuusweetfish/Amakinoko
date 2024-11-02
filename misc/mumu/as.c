@@ -58,8 +58,12 @@ enum mnemonic_word {
   MN_LD, MN_ST, MN_LDC, MN_LDCR,
   MN_BR, MN_BA,
   MN_SC,
+
+  MN_B_BASE = 0x40,
+  MN_B_AL, MN_B_EQ, MN_B_NE, MN_B_GT, MN_B_LT, MN_B_GE, MN_B_LE,
+  MN_B_SGT, MN_B_SLT, MN_B_SGE, MN_B_SLE,
 };
-static uint8_t mnemonic_trie[36][27];
+static uint8_t mnemonic_trie[73][27];
 
 static void init_trie()
 {
@@ -85,6 +89,19 @@ static void init_trie()
     {"br", MN_BR},
     {"ba", MN_BA},
     {"sc", MN_SC},
+  }, conditions[] = {
+    {"al", MN_B_AL}, 
+    {"e", MN_B_EQ}, 
+    {"eq", MN_B_EQ}, 
+    {"ne", MN_B_NE}, 
+    {"gt", MN_B_GT}, 
+    {"lt", MN_B_LT}, 
+    {"ge", MN_B_GE}, 
+    {"le", MN_B_LE}, 
+    {"sgt", MN_B_SGT}, 
+    {"slt", MN_B_SLT}, 
+    {"sge", MN_B_SGE}, 
+    {"sle", MN_B_SLE},
   };
 
   uint8_t trie_size = 1;
@@ -95,9 +112,23 @@ static void init_trie()
       if (q == 0)
         q = mnemonic_trie[p][*w - 'a' + 1] = trie_size++;
       p = q;
-      printf("%c %d\n", *w, p);
     }
-    mnemonic_trie[p][0] = mnemonics[i].id;
+    if (mnemonics[i].id == MN_BR || mnemonics[i].id == MN_BA) {
+      // Condition suffices
+      uint8_t p0 = p;
+      for (uint8_t j = 0; j < sizeof conditions / sizeof conditions[0]; j++) {
+        uint8_t p = p0;
+        for (const char *w = conditions[j].w; *w != 0; w++) {
+          uint8_t q = mnemonic_trie[p][*w - 'a' + 1];
+          if (q == 0)
+            q = mnemonic_trie[p][*w - 'a' + 1] = trie_size++;
+          p = q;
+        }
+        mnemonic_trie[p][0] = mnemonics[i].id | conditions[j].id;
+      }
+    } else {
+      mnemonic_trie[p][0] = mnemonics[i].id;
+    }
   }
 }
 
@@ -112,18 +143,31 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
 
     // Mnemonic
     uint8_t trie_pos = 0;
-    putchar('[');
+    uint8_t mnemonic_valid = 1; // Cleared when a non-existent child is encountered
+    uint8_t mnemonic = 0;       // Word tag
+    uint8_t label_id = 0, len = 0;
     do {
       c = tolower(c);
-      putchar(c);
       trie_pos = mnemonic_trie[trie_pos][c - 'a' + 1];
+      if (++len == 1) label_id = c - 'a';
       if (trie_pos == 0) {
-        printf("Invalid mnemonic\n");
+        mnemonic_valid = 0;
       }
     } while ((c = getchar()) != EOF && isalpha(c));
-    putchar(']'); putchar('\n');
+    if (c == ':') {
+      if (len != 1) {
+        printf("Invalid label\n");
+      } else {
+        printf("label %u\n", label_id);
+      }
+    } else {
+      if (!mnemonic_valid || (mnemonic = mnemonic_trie[trie_pos][0]) == 0) {
+        printf("Invalid mnemonic\n");
+      }
+    }
 
     // Operands
+    if (mnemonic != 0) printf("Mnemonic %02x\n", mnemonic);
     while (1) {
       operand_t o = read_operand();
       if (o.ty == NONE) break;
