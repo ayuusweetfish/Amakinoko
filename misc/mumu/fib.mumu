@@ -2,14 +2,14 @@
   mov %2, =1
   mov %4, =1
   mov %5, =0
-  brile %0, %4, Bf
+  brle %0, %4, Bf
 A:
   add %1, %2
   add %2, %1
   sub %0, =2
-  brigt %0, %4, Ab
+  brgt %0, %4, Ab
 B:
-  brie %0, %5, Cf
+  bre %0, %5, Cf
   mov %0, %2
   sc =0
 C:
