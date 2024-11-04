@@ -151,6 +151,10 @@ uint32_t assemble(
   while (1) {
     while ((c = my_getchar()) != EOF && isspace(c)) { }
     if (c == EOF) break;
+    if (c == '#') { // Comment
+      while ((c = my_getchar()) != EOF && c != '\n') { }
+      continue;
+    }
 
     uint32_t instr_ln = line_num;
 
@@ -247,8 +251,12 @@ uint32_t assemble(
       int c;
 
       // Find operand
-      while ((c = my_getchar()) != EOF && c != '\n' && c != '%' && c != '=' && !isalpha(c)) { }
+      while ((c = my_getchar()) != EOF && c != '\n' && (isspace(c) || c == ',')) { }
       if (c == EOF || c == '\n') break;
+      if (c == '#') { // Comment
+        while ((c = my_getchar()) != EOF && c != '\n') { }
+        break;
+      }
 
       struct file_pos_t start_pos = { .line = line_num, .col = col_num };
       if (c == '%' || c == '=') {
@@ -420,7 +428,7 @@ int main()
 {
   init_trie();
 
-  uint32_t c[1024];
+  uint32_t c[65536];
   struct file_pos_t err_pos;
   char err_msg[64];
   uint32_t len = assemble(c, sizeof c / sizeof c[0], &err_pos, err_msg, sizeof err_msg);

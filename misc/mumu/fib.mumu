@@ -11,7 +11,8 @@ A:
 B:
   bre %0, %5, Cf
   mov %0, %2
-  mov %1, Zf
+  # Load [Z+0] from ROM
+  mov %1, Zf  # Load address
   ldc %1, %1, =0
   sc =0
 C:
