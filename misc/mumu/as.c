@@ -78,8 +78,9 @@ static void init_trie()
             q = mnemonic_trie[p][*w - 'a' + 1] = trie_size++;
           p = q;
         }
-        mnemonic_trie[p][0] = mnemonics[i].id | conditions[j].id;
+        mnemonic_trie[p][0] = mnemonics[i].id + conditions[j].id;
       }
+      mnemonic_trie[p][0] = mnemonics[i].id + MN_B_AL;
     } else {
       mnemonic_trie[p][0] = mnemonics[i].id;
     }
@@ -344,6 +345,14 @@ uint32_t assemble(
           report_error(instr_ln, "Invalid operands");
         }
       } else if (mnemonic >= MN_BR && mnemonic < MN_BR_END) {
+        if (mnemonic == MN_BR + MN_B_AL && n_operands == 1 &&
+            (operands[0].ty == LABEL_B || operands[0].ty == LABEL_F)) {
+          // XXX: Temporary approach, refactor to unify label handling
+          n_operands = 3;
+          operands[2] = operands[0];
+          operands_pos[2] = operands_pos[0];
+          operands[0] = operands[1] = (operand_t){ .ty = REGISTER, .n = 0 };
+        }
         if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
@@ -374,7 +383,9 @@ uint32_t assemble(
           report_error(instr_ln, "Invalid operands");
         }
       } else if (mnemonic >= MN_BA && mnemonic < MN_BA_END) {
-        if (n_operands == 3 &&
+        if (mnemonic == MN_BA + MN_B_AL && n_operands == 1 && operands[0].ty == REGISTER) {
+          emit(0xA0, operands[0].n, operands[0].n, operands[0].n);
+        } else if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
             operands[2].ty == REGISTER) {
