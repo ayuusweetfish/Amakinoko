@@ -15,3 +15,6 @@ B:
 C:
   mov %0, %1
   sc =0
+
+Z:
+  data aa 55 aa 55 11

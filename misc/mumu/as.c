@@ -13,8 +13,10 @@ enum mnemonic_word {
   MN_BR, MN_BR_END = MN_BR + MN_B_COUNT,
   MN_BA, MN_BA_END = MN_BA + MN_B_COUNT,
   MN_SC,
+
+  MN_DATA,
 };
-static uint8_t mnemonic_trie[73][27];
+static uint8_t mnemonic_trie[80][27];
 
 static void init_trie()
 {
@@ -40,6 +42,7 @@ static void init_trie()
     {"br", MN_BR},
     {"ba", MN_BA},
     {"sc", MN_SC},
+    {"data", MN_DATA},
   }, conditions[] = {
     {"al", MN_B_AL}, 
     {"e", MN_B_EQ}, 
@@ -81,6 +84,14 @@ static void init_trie()
       mnemonic_trie[p][0] = mnemonics[i].id;
     }
   }
+}
+
+static int hex_digit(int c)
+{
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  return -1;
 }
 
 static uint32_t line_num, col_num, saved_col_num;
@@ -125,13 +136,16 @@ uint32_t assemble(
 } while (0)
 #define report_error(_line, _fmt, ...) \
   report_error_pos(((struct file_pos_t){ .line = (_line), .col = 0 }), _fmt, ##__VA_ARGS__)
+#define report_error_here(_fmt, ...) \
+  report_error_pos(((struct file_pos_t){ .line = line_num, .col = col_num }), _fmt, ##__VA_ARGS__)
 
-#define emit_24(_opcode, _v) do { \
+#define emit_32(_v) do { \
   if (n_assembled >= limit) report_error(line_num, "Too many instructions"); \
-  rom[n_assembled++] = ((uint32_t)(_opcode) << 24) | (_v); \
+  rom[n_assembled++] = (_v); \
 } while (0)
-#define emit(_opcode, _v1, _v2, _v3) emit_24(_opcode, ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
-#define emit_bh(_opcode, _v1, _v2)   emit_24(_opcode, ((_v1) << 16) | ((_v2) << 0))
+#define emit_24(_opcode, _v1)        emit_32(((uint32_t)(_opcode) << 24) | ((_v1) <<  0))
+#define emit(_opcode, _v1, _v2, _v3) emit_32(((uint32_t)(_opcode) << 24) | ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
+#define emit_bh(_opcode, _v1, _v2)   emit_32(((uint32_t)(_opcode) << 24) | ((_v1) << 16) | ((_v2) << 0))
 
   while (1) {
     while ((c = my_getchar()) != EOF && isspace(c)) { }
@@ -178,6 +192,30 @@ uint32_t assemble(
         rom[addr] |= (n_assembled - (addr + 1));
       }
       forward_patch_n[label_id] = 0;
+      continue;
+    }
+
+    // Directives
+    if (mnemonic == MN_DATA) {
+      uint32_t value = 0;
+      uint8_t n_bits = 0;
+      while (1) {
+        while (isspace(c)) {
+          if (c == '\n') goto line_fin;
+          c = my_getchar();
+        }
+        int n = hex_digit(c);
+        if (n == -1) report_error_here("Expected hexadecimal number");
+        value = (value << 4) | n;
+        if (++n_bits == 8) {
+          emit_32(value);
+          value = 0;
+          n_bits = 0;
+        }
+        c = my_getchar();
+      }
+    line_fin:
+      if (n_bits != 8) emit_32(value);
       continue;
     }
 
