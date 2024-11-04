@@ -77,8 +77,11 @@ static inline void delay_us(uint32_t us)
 
 static I2C_HandleTypeDef i2c1;
 static TIM_HandleTypeDef tim3;
+static UART_HandleTypeDef uart2;
 
-inline void run();
+static uint8_t rx_byte;
+
+static void run();
 
 // Pull a set of pins to a given level and set them as input
 static inline void pull_electrodes_port(GPIO_TypeDef *port, uint32_t pins, bool level)
@@ -238,6 +241,33 @@ int main()
   clk_init.AHBCLKDivider = RCC_SYSCLK_DIV1;         // 64 MHz
   clk_init.APB1CLKDivider = RCC_HCLK_DIV1;          // 64 MHz
   HAL_RCC_ClockConfig(&clk_init, FLASH_LATENCY_2);
+
+#if REV == 2
+  // ======== UART ========
+  HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_2 | GPIO_PIN_3,
+    .Mode = GPIO_MODE_AF_PP,
+    .Alternate = GPIO_AF1_USART2,
+    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+  });
+  __HAL_RCC_USART2_CLK_ENABLE();
+  uart2 = (UART_HandleTypeDef){
+    .Instance = USART2,
+    .Init = (UART_InitTypeDef){
+      .BaudRate = 115200,
+      .WordLength = UART_WORDLENGTH_8B,
+      .StopBits = UART_STOPBITS_1,
+      .Parity = UART_PARITY_NONE,
+      .Mode = UART_MODE_TX_RX,
+      .HwFlowCtl = UART_HWCONTROL_NONE,
+      .OverSampling = UART_OVERSAMPLING_16,
+    },
+  };
+  HAL_UART_Init(&uart2);
+  HAL_NVIC_SetPriority(USART2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(USART2_IRQn);
+  HAL_UART_Receive_IT(&uart2, &rx_byte, 1);
+#endif
 
   // ======== Capacitive touch sensing ========
   // BTN_OUT
@@ -572,10 +602,27 @@ if (0) {
 }
 #pragma GCC pop_options
 
+static void serial_rx_process_byte(uint8_t b)
+{
+  if (b == 48) {
+    HAL_UART_Transmit(&uart2, (uint8_t *)"hello", 5, HAL_MAX_DELAY);
+  }
+}
+
 void SysTick_Handler()
 {
   HAL_IncTick();
   HAL_SYSTICK_IRQHandler();
+}
+
+void USART2_IRQHandler()
+{
+  HAL_UART_IRQHandler(&uart2);
+}
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *_uart2)
+{
+  serial_rx_process_byte(rx_byte);
+  HAL_UART_Receive_IT(&uart2, &rx_byte, 1);
 }
 
 void NMI_Handler() { while (1) { } }
@@ -604,4 +651,3 @@ void I2C2_IRQHandler() { while (1) { } }
 void SPI1_IRQHandler() { while (1) { } }
 void SPI2_IRQHandler() { while (1) { } }
 void USART1_IRQHandler() { while (1) { } }
-void USART2_IRQHandler() { while (1) { } }
