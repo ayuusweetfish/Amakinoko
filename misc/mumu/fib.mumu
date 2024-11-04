@@ -22,3 +22,4 @@ C:
 
 Z:
   data aa 55 aa 55 11
+  baal %0, %1, %2

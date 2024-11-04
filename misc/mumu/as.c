@@ -373,6 +373,15 @@ uint32_t assemble(
         } else {
           report_error(instr_ln, "Invalid operands");
         }
+      } else if (mnemonic >= MN_BA && mnemonic < MN_BA_END) {
+        if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            operands[2].ty == REGISTER) {
+          emit(0xA0 + (mnemonic - MN_BA), operands[0].n, operands[1].n, operands[2].n);
+        } else {
+          report_error(instr_ln, "Invalid operands");
+        }
       } else if (mnemonic == MN_SC) {
         if (n_operands == 1 &&
             operands[0].ty == IMMEDIATE) {
