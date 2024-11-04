@@ -11,6 +11,8 @@
 #include "uxn.h"
 #include "../../misc/mumu/mumu.h"
 
+#define REV 2
+
 // #define RELEASE
 #ifndef RELEASE
 #define _release_inline
@@ -93,16 +95,26 @@ static inline void pull_electrodes_port(GPIO_TypeDef *port, uint32_t pins, bool 
   HAL_GPIO_Init(port, &gpio_init);
 }
 
+#define N_ELECTRODES 4
+
+#if REV == 1
+  #define BTN_OUT_PORT  GPIOC
+  #define BTN_OUT_PIN   GPIO_PIN_15
+  #define TOUCH_PINS_A  ((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3))
+  #define TOUCH_MASK_   1 << 0, 1 << 1, 1 << 2, 1 << 3,
+#elif REV == 2
+  #define BTN_OUT_PORT  GPIOA
+  #define BTN_OUT_PIN   GPIO_PIN_6
+  #define TOUCH_PINS_A  ((1 << 7) | (1 << 8) | (1 << 11) | (1 << 12))
+  #define TOUCH_MASK_   1 << 7, 1 << 8, 1 << 11, 1 << 12,
+#endif
+
+static const uint16_t TOUCH_MASK[N_ELECTRODES] = { TOUCH_MASK_ };
+
 static inline void pull_electrodes(bool level)
 {
-  pull_electrodes_port(GPIOA,
-    GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3,
-    level);
+  pull_electrodes_port(GPIOA, TOUCH_PINS_A, level);
 }
-
-#define N_ELECTRODES 4
-#define BTN_OUT_PORT GPIOC
-#define BTN_OUT_PIN  GPIO_PIN_15
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -113,17 +125,11 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
     uint16_t v;
   } record[16];
 
+  static const uint16_t FULL_MASK =
+    TOUCH_MASK[0] | TOUCH_MASK[1] | TOUCH_MASK[2] | TOUCH_MASK[3];
+
   uint16_t cap[4] = { 0 };
   for (int i = 0; i < N_ELECTRODES; i++) cap_sum[i] = 0;
-
-  static const uint16_t MASK[N_ELECTRODES] = {
-    1 <<  0,
-    1 <<  1,
-    1 <<  2,
-    1 <<  3,
-  };
-  static const uint16_t FULL_MASK =
-    MASK[ 0] | MASK[ 1] | MASK[ 2] | MASK[ 3];
 
   inline void toggle(const bool level) {
     pull_electrodes(1 - level); // Pull to the opposite level before reading
@@ -145,7 +151,7 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
       uint16_t t = record[i - 1].t + 1;
       uint16_t diff = record[i - 1].v ^ record[i].v;
       for (int j = 0; j < N_ELECTRODES; j++)
-        if (diff & MASK[j]) cap[j] = t;
+        if (diff & TOUCH_MASK[j]) cap[j] = t;
     }
     for (int j = 0; j < N_ELECTRODES; j++)
       if (cap_sum[j] == 0xffff || cap[j] == 0xffff) cap_sum[j] = 0xffff;
@@ -177,6 +183,14 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
   }
 }
 #pragma GCC pop_options
+
+#if REV == 1
+  #define LED_OUT_PORT  GPIOB
+  #define LED_OUT_PIN   (1 << 9)
+#elif REV == 2
+  #define LED_OUT_PORT  GPIOA
+  #define LED_OUT_PIN   (1 << 5)
+#endif
 
 int main()
 {
@@ -417,9 +431,9 @@ if (0) {
   swv_printf("%u\n", HAL_GetTick() - t0); // ~2000
 }
 
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
-  HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_9,
+  HAL_GPIO_WritePin(LED_OUT_PORT, LED_OUT_PIN, 1);
+  HAL_GPIO_Init(LED_OUT_PORT, &(GPIO_InitTypeDef){
+    .Pin = LED_OUT_PIN,
     .Mode = GPIO_MODE_OUTPUT_PP,
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
@@ -517,44 +531,44 @@ if (0) {
   }
 }
 
-  GPIOB->BSRR = (1 << 9) << 16; // Reset code, drive low
+  LED_OUT_PORT->BSRR = LED_OUT_PIN << 16; // Reset code, drive low
   delay_us(60); // Nominal length is 50 us, leave some tolerance
 
   TIM3->SR = ~TIM_SR_UIF;
   for (int i = 0; i < N; i++) {
     // G
     uint8_t g = buf[i][0];
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 64);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 32);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 16);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 8);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 4);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 2);
-    OUTPUT_BIT(GPIOB, 1 << 9, g & 1);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 64);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 32);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 16);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 8);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 4);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 2);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 1);
     // R
     uint8_t r = buf[i][1];
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 64);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 32);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 16);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 8);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 4);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 2);
-    OUTPUT_BIT(GPIOB, 1 << 9, r & 1);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 64);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 32);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 16);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 8);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 4);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 2);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 1);
     // B
     uint8_t b = buf[i][2];
-    OUTPUT_BIT(GPIOB, 1 << 9, 0);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 64);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 32);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 16);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 8);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 4);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 2);
-    OUTPUT_BIT(GPIOB, 1 << 9, b & 1);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 64);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 32);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 16);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 8);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 4);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 2);
+    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 1);
   }
 
-  GPIOB->BSRR = (1 << 9); // Release line, write high, to avoid continuous current
+  LED_OUT_PORT->BSRR = LED_OUT_PIN; // Release line, write high, to avoid continuous current
 }
 #pragma GCC pop_options
 
