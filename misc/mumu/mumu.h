@@ -35,7 +35,7 @@ void mumu_run(mumu_vm_t *restrict m)
         ty == 0x1 ? m->m[(instr >> 0) & 0xFF] :
         ty == 0x2 ? ((instr >> 0) & 0xFF) :
         ty == 0x3 ? ((instr >> 0) & 0xFFFF) :
-                    (((instr >> 0) & 0xFFFF) << 16)
+                    ((uint32_t)((instr >> 0) & 0xFFFF) << 16) // SDCC spurious warning workaround
       );
       uint32_t result = (
         op == 0x0 ? opnd_2 :
@@ -96,7 +96,7 @@ void mumu_run(mumu_vm_t *restrict m)
     }
 
     case 0x0: {
-      uint32_t syscall = instr & ((1 << 24) - 1);
+      uint32_t syscall = instr & (((uint32_t)1 << 24) - 1);
       if (syscall == 0) goto _fin;
     }
 
