@@ -19,52 +19,6 @@ typedef struct {
   operand_t a, b, c;
 } instruction_t;
 
-static uint32_t line_num; // TODO: Refactor this, restricting `read_operand()` in the scope of `assemble()`
-
-static inline int my_getchar()
-{
-  int c = getchar();
-  if (c == '\n') line_num++;
-  return c;
-}
-static inline void my_ungetchar(int c)
-{
-  ungetc(c, stdin);
-  if (c == '\n') line_num--;
-}
-
-operand_t read_operand()
-{
-  operand_t o;
-  int c;
-
-  // Find operand
-  while ((c = my_getchar()) != EOF && c != '\n' && c != '%' && c != '=' && !isalpha(c)) { }
-  if (c == EOF || c == '\n') return (operand_t){ .ty = NONE, .n = 0 };
-  if (c == '%' || c == '=') {
-    o.ty = (c == '%' ? REGISTER : IMMEDIATE);
-    uint32_t n = 0;
-    while ((c = my_getchar()) >= '0' && c <= '9') {
-      n = n * 10 + (c - '0');
-    }
-    o.n = n;
-    my_ungetchar(c);
-  } else if (isalpha(c)) {
-    int dir = my_getchar();
-    if (dir == 'b') {
-      o.ty = LABEL_B;
-    } else if (dir == 'f') {
-      o.ty = LABEL_F;
-    } else {
-      printf("Invalid direction %c\n", dir);
-      return (operand_t){ .ty = NONE, .n = 0 };
-    }
-    o.n = tolower(c) - 'a';
-  }
-
-  return o;
-}
-
 enum mnemonic_word {
   MN_B_AL = 0x00, MN_B_EQ, MN_B_NE, MN_B_GT, MN_B_LT, MN_B_GE, MN_B_LE,
   MN_B_SGT, MN_B_SLT, MN_B_SGE, MN_B_SLE,
@@ -146,7 +100,23 @@ static void init_trie()
   }
 }
 
-uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
+static uint32_t line_num;
+
+static inline int my_getchar()
+{
+  int c = getchar();
+  if (c == '\n') line_num++;
+  return c;
+}
+static inline void my_ungetchar(int c)
+{
+  ungetc(c, stdin);
+  if (c == '\n') line_num--;
+}
+
+uint32_t assemble(
+  uint32_t *restrict rom, uint32_t limit,
+  uint32_t *o_err_line, char *o_err_msg, uint32_t err_msg_len_limit)
 {
   uint32_t n_assembled = 0;
   int c;
@@ -158,16 +128,18 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
   uint8_t forward_patch_n[26] = { 0 };
 
 #define report_error_line(_line, _fmt, ...) do { \
-  printf("line %u: " _fmt "\n", _line, ##__VA_ARGS__); \
+  snprintf(o_err_msg, err_msg_len_limit, _fmt, ##__VA_ARGS__); \
+  *o_err_line = (_line); \
   return n_assembled; \
 } while (0)
 #define report_error(_fmt, ...) report_error_line(line_num, _fmt, ##__VA_ARGS__)
 
-#define emit(_opcode, _v1, _v2, _v3) \
-  (rom[n_assembled++] = ((_opcode) << 24) | ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
-#define emit_bh(_opcode, _v1, _v2) \
-  (rom[n_assembled++] = ((_opcode) << 24) | ((_v1) << 16) | ((_v2) << 0))
-#define emit_24(_opcode, _v) (rom[n_assembled++] = ((_opcode) << 24) | (_v))
+#define emit_24(_opcode, _v) do { \
+  if (n_assembled >= limit) report_error("Too many instructions"); \
+  rom[n_assembled++] = ((_opcode) << 24) | (_v); \
+} while (0)
+#define emit(_opcode, _v1, _v2, _v3) emit_24(_opcode, ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
+#define emit_bh(_opcode, _v1, _v2)   emit_24(_opcode, ((_v1) << 16) | ((_v2) << 0))
 
   while (1) {
     while ((c = my_getchar()) != EOF && isspace(c)) { }
@@ -207,7 +179,7 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
       for (uint8_t i = 0; i < forward_patch_n[label_id]; i++) {
         uint32_t addr = forward_patch[label_id][i];
         if (n_assembled - (addr + 1) > 0xff)
-          report_error("Label too far away");
+          report_error("Label %c too far away", 'A' + label_id);
         rom[addr] |= (n_assembled - (addr + 1));
       }
       forward_patch_n[label_id] = 0;
@@ -218,7 +190,34 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
     uint8_t n_operands = 0;
     operand_t operands[3];
     while (1) {
-      operand_t o = read_operand();
+      operand_t o;
+      int c;
+
+      // Find operand
+      while ((c = my_getchar()) != EOF && c != '\n' && c != '%' && c != '=' && !isalpha(c)) { }
+      if (c == EOF || c == '\n') { o.ty = NONE; goto finish_operand; }
+      if (c == '%' || c == '=') {
+        o.ty = (c == '%' ? REGISTER : IMMEDIATE);
+        uint32_t n = 0;
+        while ((c = my_getchar()) >= '0' && c <= '9') {
+          n = n * 10 + (c - '0');
+        }
+        o.n = n;
+        my_ungetchar(c);
+      } else if (isalpha(c)) {
+        int dir = my_getchar();
+        if (dir == 'b') {
+          o.ty = LABEL_B;
+        } else if (dir == 'f') {
+          o.ty = LABEL_F;
+        } else {
+          report_error("Invalid direction %c\n", dir);
+          o.ty = NONE; goto finish_operand;
+        }
+        o.n = tolower(c) - 'a';
+      }
+
+    finish_operand:
       if (o.ty == NONE) break;
       if (n_operands >= 3) {
         report_error("Extraneous operand");
@@ -297,6 +296,7 @@ uint32_t assemble(uint32_t *restrict rom, uint32_t limit)
     if (forward_patch_n[i] != 0)
       report_error_line(forward_patch_first_line[i], "Label not found");
 
+  *o_err_line = 0;
   return n_assembled;
 }
 
@@ -305,10 +305,15 @@ int main()
   init_trie();
 
   uint32_t c[256];
-  uint32_t len = assemble(c, sizeof c / sizeof c[0]);
+  uint32_t err_line;
+  char err_msg[64];
+  uint32_t len = assemble(c, sizeof c / sizeof c[0], &err_line, err_msg, sizeof err_msg);
 
   for (uint32_t i = 0; i < len; i++)
     printf("%04x: %08x\n", i, c[i]);
+
+  if (err_line != 0)
+    printf("line %u: %s\n", err_line, err_msg);
 
   return 0;
 }
