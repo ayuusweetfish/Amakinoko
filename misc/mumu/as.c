@@ -125,7 +125,7 @@ uint32_t assemble(
 
   uint32_t backward_labels[26];
   for (uint8_t i = 0; i < 26; i++) backward_labels[i] = (uint32_t)-1;
-  uint32_t forward_patch[26][32];
+  struct patch_entry_t { uint32_t addr; uint8_t is_rel; } forward_patch[26][32];
   struct file_pos_t forward_patch_first_pos[26];
   uint8_t forward_patch_n[26] = { 0 };
 
@@ -183,13 +183,20 @@ uint32_t assemble(
     if (is_label) {
       backward_labels[label_id] = n_assembled;
       for (uint8_t i = 0; i < forward_patch_n[label_id]; i++) {
-        uint32_t addr = forward_patch[label_id][i];
-        if (n_assembled - (addr + 1) > 0xff)
-          report_error(instr_ln, "Label %c too far away from forward-reference (%u:%u)",
-            'A' + label_id,
-            forward_patch_first_pos[label_id].line,
-            forward_patch_first_pos[label_id].col);
-        rom[addr] |= (n_assembled - (addr + 1));
+        uint32_t addr = forward_patch[label_id][i].addr;
+        if (forward_patch[label_id][i].is_rel) {
+          if (n_assembled - (addr + 1) > 0xff)
+            report_error(instr_ln, "Relative label %c too far away from forward-reference (%u:%u)",
+              'A' + label_id,
+              forward_patch_first_pos[label_id].line,
+              forward_patch_first_pos[label_id].col);
+          rom[addr] |= (n_assembled - (addr + 1));
+        } else {
+          if (n_assembled - (addr + 1) > 0xff)
+            report_error(instr_ln, "Absolute label %c out of 16-bit range: actual address is %u",
+              'A' + label_id, n_assembled);
+          rom[addr] |= n_assembled;
+        }
       }
       forward_patch_n[label_id] = 0;
       continue;
@@ -306,6 +313,23 @@ uint32_t assemble(
             operands[1].ty == IMMEDIATE) {
           ensure_imm_range(1, 16);
           emit_bh(0x30 + (mnemonic - MN_MOV), operands[0].n, operands[1].n);
+        } else if (n_operands == 2 &&
+            operands[0].ty == REGISTER &&
+            (operands[1].ty == LABEL_B || operands[1].ty == LABEL_F)) {
+          uint8_t offset = 0;
+          if (operands[1].ty == LABEL_B) {
+            uint32_t last = backward_labels[operands[1].n];
+            if (last == (uint32_t)-1)
+              report_error_pos(operands_pos[1], "Label %c not found", 'A' + operands[1].n);
+          } else {  // LABEL_F
+            if (forward_patch_n[operands[1].n] >= sizeof forward_patch / sizeof forward_patch[0])
+              report_error_pos(operands_pos[1], "Too many unresolved forward-referencing labels %cf", 'A' + operands[1].n);
+            forward_patch[operands[1].n][forward_patch_n[operands[1].n]++] =
+              (struct patch_entry_t){ .addr = n_assembled, .is_rel = 0 };
+            if (forward_patch_n[operands[1].n] == 1)
+              forward_patch_first_pos[operands[1].n] = operands_pos[1];
+          }
+          emit_bh(0x30 + (mnemonic - MN_MOV), operands[0].n, offset);
         } else {
           report_error(instr_ln, "Invalid operands");
         }
@@ -338,9 +362,10 @@ uint32_t assemble(
               report_error_pos(operands_pos[2], "Label %c too far away", 'A' + operands[2].n);
             offset = (last - (n_assembled + 1)) & 0xff;
           } else {  // LABEL_F
-            if (forward_patch_n[operands[2].n] >= sizeof forward_patch[0])
+            if (forward_patch_n[operands[2].n] >= sizeof forward_patch / sizeof forward_patch[0])
               report_error_pos(operands_pos[2], "Too many unresolved forward-referencing labels %cf", 'A' + operands[2].n);
-            forward_patch[operands[2].n][forward_patch_n[operands[2].n]++] = n_assembled;
+            forward_patch[operands[2].n][forward_patch_n[operands[2].n]++] =
+              (struct patch_entry_t){ .addr = n_assembled, .is_rel = 1 };
             if (forward_patch_n[operands[2].n] == 1)
               forward_patch_first_pos[operands[2].n] = operands_pos[2];
           }
@@ -365,7 +390,7 @@ uint32_t assemble(
 
   for (uint8_t i = 0; i < 26; i++)
     if (forward_patch_n[i] != 0)
-      report_error_pos(forward_patch_first_pos[i], "Label not found");
+      report_error_pos(forward_patch_first_pos[i], "Forward-reference label %c not resolved", 'A' + i);
 
   *o_err_pos = (struct file_pos_t){ 0 };
   return n_assembled;

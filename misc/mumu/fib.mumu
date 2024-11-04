@@ -11,9 +11,13 @@ A:
 B:
   bre %0, %5, Cf
   mov %0, %2
+  mov %1, Zf
+  ldc %1, %1, =0
   sc =0
 C:
   mov %0, %1
+  mov %1, Zf
+  ldc %1, %1, =1
   sc =0
 
 Z:
