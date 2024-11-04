@@ -135,7 +135,7 @@ uint32_t assemble(
 
 #define emit_24(_opcode, _v) do { \
   if (n_assembled >= limit) report_error(line_num, "Too many instructions"); \
-  rom[n_assembled++] = ((_opcode) << 24) | (_v); \
+  rom[n_assembled++] = ((uint32_t)(_opcode) << 24) | (_v); \
 } while (0)
 #define emit(_opcode, _v1, _v2, _v3) emit_24(_opcode, ((_v1) << 16) | ((_v2) << 8) | ((_v3) << 0))
 #define emit_bh(_opcode, _v1, _v2)   emit_24(_opcode, ((_v1) << 16) | ((_v2) << 0))
@@ -201,6 +201,11 @@ uint32_t assemble(
         uint32_t n = 0;
         while ((c = my_getchar()) >= '0' && c <= '9') {
           n = n * 10 + (c - '0');
+          uint32_t limit = (o.ty == REGISTER ? ((uint32_t)1 << 8) : ((uint32_t)1 << 24));
+          if (n >= limit)
+            report_error(op_ln, "%s out of range: expected <= %u",
+              o.ty == REGISTER ? "Register index" : "Immediate value",
+              limit - 1);
         }
         o.n = n;
         my_ungetchar(c);
@@ -225,6 +230,11 @@ uint32_t assemble(
 
     // Emit code
     if (mnemonic_valid && mnemonic > 0) {
+      #define ensure_imm_range(_imm, _bits) do { \
+        if ((_imm) >= ((uint32_t)1 << (_bits))) \
+          report_error(instr_ln, "Immediate value %u out of range: expected <= %u", \
+            (_imm), ((uint32_t)1 << (_bits)) - 1); \
+      } while (0)
       if (mnemonic >= MN_MOV && mnemonic <= MN_LSL) {
         if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
@@ -235,6 +245,7 @@ uint32_t assemble(
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
             operands[2].ty == IMMEDIATE) {
+          ensure_imm_range(operands[2].n, 8);
           emit(0x20 + (mnemonic - MN_MOV), operands[0].n, operands[1].n, operands[2].n);
         } else if (n_operands == 2 &&
             operands[0].ty == REGISTER &&
@@ -243,7 +254,18 @@ uint32_t assemble(
         } else if (n_operands == 2 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == IMMEDIATE) {
+          ensure_imm_range(operands[1].n, 16);
           emit_bh(0x30 + (mnemonic - MN_MOV), operands[0].n, operands[1].n);
+        } else {
+          report_error(instr_ln, "Invalid operands");
+        }
+      } else if (mnemonic >= MN_LD && mnemonic <= MN_LDCR) {
+        if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            operands[2].ty == IMMEDIATE) {
+          ensure_imm_range(operands[2].n, 8);
+          emit(0x70 + (mnemonic - MN_LD), operands[0].n, operands[1].n, operands[2].n);
         } else {
           report_error(instr_ln, "Invalid operands");
         }
@@ -279,6 +301,7 @@ uint32_t assemble(
       } else if (mnemonic == MN_SC) {
         if (n_operands == 1 &&
             operands[0].ty == IMMEDIATE) {
+          ensure_imm_range(operands[0].n, 24);
           emit_24(0x00, operands[0].n);
         } else {
           report_error(instr_ln, "Invalid operands");
