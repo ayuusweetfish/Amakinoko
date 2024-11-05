@@ -1,5 +1,5 @@
 diff --git a/darwin/combobox.m b/darwin/combobox.m
-index cc2f330..db573d9 100644
+index cc2f330..bd0e7b8 100644
 --- a/darwin/combobox.m
 +++ b/darwin/combobox.m
 @@ -81,6 +81,17 @@ void uiComboboxAppend(uiCombobox *c, const char *text)
@@ -8,13 +8,13 @@ index cc2f330..db573d9 100644
  
 +void uiComboboxDelete(uiCombobox *c, int n)
 +{
-+    [c->pbac removeObjectAtArrangedObjectIndex:n];
++	[c->pbac removeObjectAtArrangedObjectIndex:n];
 +}
 +
 +void uiComboboxClear(uiCombobox *c)
 +{
-+    NSRange range = NSMakeRange(0, [[c->pbac arrangedObjects] count]);
-+    [c->pbac removeObjectsAtArrangedObjectIndexes:[NSIndexSet indexSetWithIndexesInRange:range]];
++	NSRange range = NSMakeRange(0, [[c->pbac arrangedObjects] count]);
++	[c->pbac removeObjectsAtArrangedObjectIndexes:[NSIndexSet indexSetWithIndexesInRange:range]];
 +}
 +
  int uiComboboxSelected(uiCombobox *c)
