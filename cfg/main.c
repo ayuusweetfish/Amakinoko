@@ -29,9 +29,20 @@ static void list_serial_ports()
   sp_free_port_list(port_list);
 }
 
-static void btn_serial_port_refresh_clicked(uiButton *btn, void *_cbox_serial_port)
+static uiGrid *box_serial_port_r1;
+static uiCombobox *cbox_serial_port = NULL;
+static void btn_serial_port_refresh_clicked(uiButton *btn, void *_unused)
 {
-  uiCombobox *cbox_serial_port = (uiCombobox *)_cbox_serial_port;
+  if (cbox_serial_port != NULL) {
+    // XXX: This does not work due to `uiGrid`-maintained children list going out-of-sync
+    uiControlSetParent(uiControl(cbox_serial_port), NULL);
+    uiControlDestroy(uiControl(cbox_serial_port));
+  }
+
+  cbox_serial_port = uiNewCombobox();
+  uiGridAppend(box_serial_port_r1, uiControl(cbox_serial_port),
+    1, 0, 1, 1, 1, uiAlignFill, 0, uiAlignFill);
+
   struct sp_port **port_list;
   if (sp_list_ports(&port_list) < 0) {
     fprintf(stderr, "Cannot retrieve list of ports\n");
@@ -73,19 +84,19 @@ int main()
   uiBoxSetPadded(box_serial_port, 1);
   uiBoxAppend(box_main, uiControl(box_serial_port), 0);
   {
-    uiBox *box_serial_port_r1 = uiNewHorizontalBox();
-    uiBoxSetPadded(box_serial_port_r1, 1);
+    box_serial_port_r1 = uiNewGrid();
+    uiGridSetPadded(box_serial_port_r1, 1);
     uiBoxAppend(box_serial_port, uiControl(box_serial_port_r1), 0);
     {
       uiLabel *lbl = uiNewLabel("串口");
-      uiBoxAppend(box_serial_port_r1, uiControl(lbl), 0);
-
-      uiCombobox *cbox_serial_port = uiNewCombobox();
-      uiBoxAppend(box_serial_port_r1, uiControl(cbox_serial_port), 1);
+      uiGridAppend(box_serial_port_r1, uiControl(lbl),
+        0, 0, 1, 1, 0, uiAlignFill, 0, uiAlignFill);
 
       uiButton *btn_serial_port_refresh = uiNewButton("刷新");
-      uiBoxAppend(box_serial_port_r1, uiControl(btn_serial_port_refresh), 0);
-      uiButtonOnClicked(btn_serial_port_refresh, btn_serial_port_refresh_clicked, cbox_serial_port);
+      uiGridAppend(box_serial_port_r1, uiControl(btn_serial_port_refresh),
+        2, 0, 1, 1, 0, uiAlignFill, 0, uiAlignFill);
+      uiButtonOnClicked(btn_serial_port_refresh, btn_serial_port_refresh_clicked, NULL);
+      btn_serial_port_refresh_clicked(btn_serial_port_refresh, NULL);
     }
   }
 
