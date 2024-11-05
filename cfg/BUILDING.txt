@@ -6,6 +6,7 @@ clang main.c -Wall -std=c99 libui/build/meson-out/libui.a libserialport/.libs/li
 
 cd libui
 meson setup --buildtype=release --default-library=static build
+ninja -C build
 
 # MinGW build needs to suppress a warning due to windows/areadraw.cpp:81
 meson setup --buildtype=release --default-library=static --cross-file=<(echo "[binaries]

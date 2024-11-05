@@ -1,0 +1,35 @@
+diff --git a/darwin/combobox.m b/darwin/combobox.m
+index cc2f330..db573d9 100644
+--- a/darwin/combobox.m
++++ b/darwin/combobox.m
+@@ -81,6 +81,17 @@ void uiComboboxAppend(uiCombobox *c, const char *text)
+ 	[c->pbac addObject:uiprivToNSString(text)];
+ }
+ 
++void uiComboboxDelete(uiCombobox *c, int n)
++{
++    [c->pbac removeObjectAtArrangedObjectIndex:n];
++}
++
++void uiComboboxClear(uiCombobox *c)
++{
++    NSRange range = NSMakeRange(0, [[c->pbac arrangedObjects] count]);
++    [c->pbac removeObjectsAtArrangedObjectIndexes:[NSIndexSet indexSetWithIndexesInRange:range]];
++}
++
+ int uiComboboxSelected(uiCombobox *c)
+ {
+ 	return [c->pb indexOfSelectedItem];
+diff --git a/ui.h b/ui.h
+index 40aea94..f240439 100644
+--- a/ui.h
++++ b/ui.h
+@@ -226,6 +226,8 @@ _UI_EXTERN uiSeparator *uiNewVerticalSeparator(void);
+ typedef struct uiCombobox uiCombobox;
+ #define uiCombobox(this) ((uiCombobox *) (this))
+ _UI_EXTERN void uiComboboxAppend(uiCombobox *c, const char *text);
++_UI_EXTERN void uiComboboxDelete(uiCombobox *c, int n);
++_UI_EXTERN void uiComboboxClear(uiCombobox *c);
+ _UI_EXTERN int uiComboboxSelected(uiCombobox *c);
+ _UI_EXTERN void uiComboboxSetSelected(uiCombobox *c, int n);
+ _UI_EXTERN void uiComboboxOnSelected(uiCombobox *c, void (*f)(uiCombobox *c, void *data), void *data);
