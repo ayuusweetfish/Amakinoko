@@ -1,3 +1,6 @@
 [submodule "cfg/libui"]
 	path = cfg/libui
 	url = https://github.com/andlabs/libui.git
+[submodule "cfg/libserialport"]
+	path = cfg/libserialport
+	url = git://sigrok.org/libserialport

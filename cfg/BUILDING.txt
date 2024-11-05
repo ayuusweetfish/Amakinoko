@@ -1,6 +1,11 @@
+# main
+
+clang main.c -Wall -std=c99 libui/build/meson-out/libui.a libserialport/.libs/libserialport.a -framework Cocoa -framework IOKit -O2
+
+# libui
+
 cd libui
 meson setup --buildtype=release --default-library=static build
-clang main.c -Wall -std=c99 libui/build/meson-out/libui.a -framework Cocoa -O2
 
 # MinGW build needs to suppress a warning due to windows/areadraw.cpp:81
 meson setup --buildtype=release --default-library=static --cross-file=<(echo "[binaries]
@@ -17,3 +22,32 @@ cpu_family = 'x86_64'
 cpu = 'x86_64'
 endian = 'little'
 ") -Dcpp_args='-Wno-narrowing' build_win
+
+# libserialport
+
+# Note: Due to `kIOMasterPortDefault` -> `kIOMainPortDefault` deprecation and renaming,
+# the macOS version might crash without a reason (bad access).
+# In this case, manually enable `#define` at libserialport_internal.h:97 and rebuild.
+diff --git a/libserialport_internal.h b/libserialport_internal.h
+index 57346d6..03e4af3 100644
+--- a/libserialport_internal.h
++++ b/libserialport_internal.h
+@@ -93,7 +93,7 @@
+ #include <IOKit/serial/ioss.h>
+ #include <sys/syslimits.h>
+ #include <mach/mach_time.h>
+-#if MAC_OS_X_VERSION_MAX_ALLOWED < 120000 /* Before macOS 12 */
++#if 1 /* Before macOS 12 */
+ #define kIOMainPortDefault kIOMasterPortDefault
+ #endif
+ #endif
+
+cd libserialport
+./autogen.sh
+./configure
+make
+
+cd libserialport-win
+./autogen.sh
+./configure --host=x86_64-w64-mingw32
+make
