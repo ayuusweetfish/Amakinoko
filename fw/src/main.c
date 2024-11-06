@@ -217,6 +217,40 @@ static inline void adc_stop()
   #define CC2_ADC_CHANNEL 4
 #endif
 
+struct sensors_readings {
+  uint32_t t;   // (LPS22HH, SHT30) Temperature (0.01 degC)
+  uint32_t p;   // (LPS22HH) Pressure (Pa)
+  uint32_t h;   // (SHT30) Humidity (0.01 %RH)
+  uint32_t i;   // (BH1750FVI) Illuminance (lx)
+  uint8_t c[4]; // Capacitive sensing
+};
+static struct sensors_readings last_readings;
+static bool last_readings_valid = false;
+static uint32_t frame_n = 0;
+
+static inline uint16_t offs_clamp_16(uint32_t x, uint32_t offs)
+{
+  if (x < offs) return 0;
+  x -= offs;
+  return (x > 0xffff ? 0xffff : x);
+}
+
+#define TX_READINGS_LEN 11
+static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
+{
+  buf[ 0] = (frame_n >> 8) & 0xff;
+  buf[ 1] = (frame_n >> 0) & 0xff;
+  buf[ 2] = (last_readings.t >> 8) & 0xff;
+  buf[ 3] = (last_readings.t >> 0) & 0xff;
+  buf[ 4] = (last_readings.p >> 8) & 0xff;
+  buf[ 5] = (last_readings.p >> 0) & 0xff;
+  buf[ 6] = (last_readings.h >> 8) & 0xff;
+  buf[ 7] = (last_readings.h >> 0) & 0xff;
+  buf[ 8] = (last_readings.i >> 8) & 0xff;
+  buf[ 9] = (last_readings.i >> 0) & 0xff;
+  buf[10] = 0;
+}
+
 int main()
 {
   HAL_Init();
@@ -430,14 +464,6 @@ int main()
     if (result != HAL_OK) swv_printf("BH1750FVI write %lu %lu\n", result, i2c1.ErrorCode);
   }
 
-  struct sensors_readings {
-    uint32_t p;   // (LPS22HH) Pressure (Pa)
-    uint32_t t1;  // (LPS22HH) Temperature (0.01 degC)
-    uint32_t t2;  // (SHT30) Temperature (0.01 degC)
-    uint32_t h;   // (SHT30) Humidity (0.01 %RH)
-    uint32_t i;   // (BH1750FVI) Illuminance (lx)
-  };
-
   bool sensors_read(struct sensors_readings *r)
   {
     uint32_t result;
@@ -455,21 +481,33 @@ int main()
     uint32_t reading_t1 =
       ((uint32_t)buf[4] <<  0) |
       ((uint32_t)buf[5] <<  8);
-    r->p  = reading_p * 100 / 4096;
-    r->t1 = reading_t1;
+    uint32_t p  = reading_p * 100 / 4096;
+    uint32_t t1 = reading_t1;
 
     // SHT30
     result = HAL_I2C_Master_Receive(&i2c1, 0b1000100 << 1, buf, 6, 1000);
     uint32_t reading_t2 = (((uint32_t)buf[0] << 8) | buf[1]);
     uint32_t reading_h  = (((uint32_t)buf[3] << 8) | buf[4]);
-    r->t2 = -4500 + reading_t2 * 17500 / 65535;
-    r->h  = 10000 * reading_h / 65535;
+    uint32_t t2 = -4500 + reading_t2 * 17500 / 65535;
+    uint32_t h  = 10000 * reading_h / 65535;
 
     // BH1750FVI
     result = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
     if (result != HAL_OK) return false;
-    r->i = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
+    uint32_t i = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
 
+    uint16_t cap[4];
+    cap_sense(cap);
+
+    uint32_t t = (t1 + t2) / 2;
+    swv_printf("p=%lu t=%lu %lu h=%lu i=%lu | ", p, t1, t2, h, i);
+    for (int j = 0; j < 4; j++) swv_printf("%3d%c", cap[j] < 999 ? cap[j] : 999, j == 3 ? '\n' : ' ');
+
+    r->t = offs_clamp_16(t, 0);
+    r->p = offs_clamp_16(p, 65536);
+    r->h = offs_clamp_16(h, 0);
+    r->i = offs_clamp_16(i, 0);
+    for (int j = 0; j < 4; j++) r->c[i] = (cap[j] > 0xff ? 0xff : cap[j]);
     return true;
   }
 
@@ -558,14 +596,12 @@ if (0) {
     uint32_t cur = HAL_GetTick();
     if (cur >= last_sensors_start + 20) {
       struct sensors_readings r;
-      uint16_t cap[4];
-      cap_sense(cap);
       bool valid = sensors_read(&r);
       if (valid) {
-        swv_printf("p=%lu t=%lu %lu h=%lu i=%lu | ", r.p, r.t1, r.t2, r.h, r.i);
-        for (int j = 0; j < 4; j++) swv_printf("%3d%c", cap[j] < 999 ? cap[j] : 999, j == 3 ? '\n' : ' ');
         sensors_start();
         last_sensors_start = cur;
+        last_readings = r;
+        last_readings_valid = true;
       } else {
         swv_printf("Reading invalid! Check connections\n");
       }
@@ -592,6 +628,8 @@ if (0) {
 __attribute__ ((section(".RamFunc")))
 void run()
 {
+  frame_n++;
+
   static const uint8_t seq[9][3] = {
     {3, 0, 0},
     {2, 1, 0},
@@ -708,7 +746,12 @@ static void serial_rx_process_byte(uint8_t c)
       // Packet complete! Process payload
 
       if (rx_len == 1 && rx_buf[0] == 0xAA) {
-        HAL_UART_Transmit(&uart2, (uint8_t *)"hello", 5, HAL_MAX_DELAY);
+        delay_us(100);
+        uint8_t readings_buf[TX_READINGS_LEN];
+        fill_tx_readings(readings_buf);
+        HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
+        HAL_UART_Transmit(&uart2, (uint8_t *)"\x55" "Amakinoko" "\x20", 11, HAL_MAX_DELAY);
+        HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
       }
 
       // Wait for next packet
