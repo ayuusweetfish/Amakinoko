@@ -354,7 +354,7 @@ int main()
   uint32_t cc1_mV = (uint32_t)(3000ULL * adc_cc1 * vrefint_cal / (4095 * adc_vrefint));
   uint32_t cc2_mV = (uint32_t)(3000ULL * adc_cc2 * vrefint_cal / (4095 * adc_vrefint));
   cc_mV_max = (cc1_mV > cc2_mV ? cc1_mV : cc2_mV);
-  swv_printf("CC voltage %u | %u %u %u\n", cc_mV_max, adc_cc1, adc_cc2, adc_vrefint);
+  swv_printf("CC voltage %lu | %lu %lu %lu\n", cc_mV_max, adc_cc1, adc_cc2, adc_vrefint);
 
   __HAL_RCC_ADC_CLK_DISABLE();
 }
@@ -403,7 +403,7 @@ int main()
   {
     HAL_StatusTypeDef device_ready = HAL_I2C_IsDeviceReady(&i2c1, addr, 3, 1000);
     if (device_ready != HAL_OK) {
-      swv_printf("%s %u (%u)\n", name, (unsigned)device_ready, (unsigned)i2c1.ErrorCode);
+      swv_printf("%s %lu (%lu)\n", name, (uint32_t)device_ready, (uint32_t)i2c1.ErrorCode);
       return false;
     }
     return true;
@@ -414,20 +414,20 @@ int main()
 
   void sensors_start()
   {
-    unsigned result;
+    uint32_t result;
 
     // LPS22HH: One-shot
     // CTRL_REG2 = IF_ADD_INC | ONE_SHOT
     result = HAL_I2C_Mem_Write(&i2c1, 0b1011100 << 1, 0x11, I2C_MEMADD_SIZE_8BIT, (uint8_t []){0b00010001}, 1, 1000);
-    if (result != HAL_OK) swv_printf("LPS22HH write %u %u\n", result, i2c1.ErrorCode);
+    if (result != HAL_OK) swv_printf("LPS22HH write %lu %lu\n", result, i2c1.ErrorCode);
 
     // SHT30: Clock stretching disabled, high repeatability
     result = HAL_I2C_Master_Transmit(&i2c1, 0b1000100 << 1, (uint8_t []){0x24, 0x00}, 2, 1000);
-    if (result != HAL_OK) swv_printf("SHT30 write %u %u\n", result, i2c1.ErrorCode);
+    if (result != HAL_OK) swv_printf("SHT30 write %lu %lu\n", result, i2c1.ErrorCode);
 
     // BH1750FVI: One Time L-Resolution Mode
     result = HAL_I2C_Master_Transmit(&i2c1, 0b0100011 << 1, (uint8_t []){0b00100011}, 1, 1000);
-    if (result != HAL_OK) swv_printf("BH1750FVI write %u %u\n", result, i2c1.ErrorCode);
+    if (result != HAL_OK) swv_printf("BH1750FVI write %lu %lu\n", result, i2c1.ErrorCode);
   }
 
   struct sensors_readings {
@@ -440,7 +440,7 @@ int main()
 
   bool sensors_read(struct sensors_readings *r)
   {
-    unsigned result;
+    uint32_t result;
     uint8_t buf[10];
 
     // LPS22HH
@@ -504,8 +504,8 @@ if (1) {
     m.m[0] = 15;
     mumu_run(&m); // 36 instructions
   }
-  swv_printf("%u\n", HAL_GetTick() - t0); // 352 = 1M instructions per second
-  swv_printf("%08x\n", m.m[0]); // 610 = 0x00000262
+  swv_printf("%lu\n", HAL_GetTick() - t0);  // 352 = 1M instructions per second
+  swv_printf("%08lx\n", m.m[0]);  // 610 = 0x00000262
 }
 
 if (0) {
@@ -536,7 +536,7 @@ if (0) {
   r[256] = 0x00;
   uint32_t t0 = HAL_GetTick();
   for (int i = 0; i < 10000; i++) uxn_eval(0x0);
-  swv_printf("%u\n", HAL_GetTick() - t0); // ~2000
+  swv_printf("%lu\n", HAL_GetTick() - t0); // ~2000
 }
 
   HAL_GPIO_WritePin(LED_OUT_PORT, LED_OUT_PIN, 1);
@@ -562,7 +562,7 @@ if (0) {
       cap_sense(cap);
       bool valid = sensors_read(&r);
       if (valid) {
-        swv_printf("p=%u t=%u %u h=%u i=%u | ", r.p, r.t1, r.t2, r.h, r.i);
+        swv_printf("p=%lu t=%lu %lu h=%lu i=%lu | ", r.p, r.t1, r.t2, r.h, r.i);
         for (int j = 0; j < 4; j++) swv_printf("%3d%c", cap[j] < 999 ? cap[j] : 999, j == 3 ? '\n' : ' ');
         sensors_start();
         last_sensors_start = cur;
