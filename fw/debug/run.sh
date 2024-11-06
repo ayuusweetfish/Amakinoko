@@ -1,16 +1,28 @@
-if [ "$1" == "f" ]; then  # flash
-  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'program {.pio/build/dev/firmware.elf} verify reset; shutdown'
+openocd_cmds=
+openocd_init=
+if [[ "$1" == *"f"* ]]; then  # flash
+  openocd_cmds="$openocd_cmds; program {.pio/build/dev/firmware.elf} verify reset"
+fi
+if [[ "$1" == *"s"* ]]; then  # serve
+  openocd_cmds="$openocd_cmds; init"
+  openocd_init=1
+fi
+if [[ "$1" == *"r"* ]]; then  # serve, reset
+  openocd_cmds="$openocd_cmds; init; reset"
+  openocd_init=1
+fi
+if [[ "$1" == *"t"* ]]; then  # serve, stop
+  openocd_cmds="$openocd_cmds; init; halt"
+  openocd_init=1
+fi
+if [ "$openocd_cmds" ]; then
+  if ! [ "$openocd_init" ]; then
+    openocd_cmds="$openocd_cmds; shutdown"
+  fi
+  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c "adapter speed 32000 $openocd_cmds"
   exit
-elif [ "$1" == "s" ]; then  # serve
-  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000; init'
-  exit
-elif [ "$1" == "r" ]; then  # serve, reset
-  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000; init; reset'
-  exit
-elif [ "$1" == "t" ]; then  # serve, stop
-  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000; init; halt'
-  exit
-elif [ "$1" == "d" ]; then  # disassembly
+fi
+if [ "$1" == "d" ]; then  # disassembly
   ~/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-objdump -S -d .pio/build/dev/firmware.elf
   exit
 elif [ "$1" == "z" ]; then  # size

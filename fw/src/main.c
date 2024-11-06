@@ -1,5 +1,3 @@
-// Board is Rev. 1
-
 #include <stm32g0xx_hal.h>
 #include <assert.h>
 #include <math.h>
@@ -35,6 +33,7 @@ static inline void swv_putchar(uint8_t c)
     swv_buf[swv_buf_ptr - 1] = c;
   }
 }
+__attribute__ ((format(printf, 1, 2)))
 static void swv_printf(const char *restrict fmt, ...)
 {
   char s[256];
@@ -187,12 +186,35 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
 }
 #pragma GCC pop_options
 
+static inline void adc_start()
+{
+  while (!(ADC1->CR & ADC_CR_ADEN)) {
+    ADC1->CR = (ADC1->CR & ~(ADC_CR_ADCAL | ADC_CR_ADSTP | ADC_CR_ADSTART | ADC_CR_ADDIS)) | ADC_CR_ADEN;
+  }
+}
+static inline uint32_t adc_poll_value()
+{
+  ADC1->ISR = (ADC_ISR_EOC | ADC_ISR_EOS | ADC_ISR_OVR);  // All bits of ADC_ISR are r/cw1
+  ADC1->CR = ADC_CR_ADSTART;  // All bits of ADC_CR are r/s
+  while (!(ADC1->ISR & ADC_FLAG_EOC)) { }
+  return ADC1->DR;
+}
+static inline void adc_stop()
+{
+  ADC1->CR = (ADC1->CR & ~(ADC_CR_ADCAL | ADC_CR_ADSTP | ADC_CR_ADSTART | ADC_CR_ADDIS)) | ADC_CR_ADSTP;
+  while (ADC1->CR & ADC_CR_ADSTART) { }
+  ADC1->CR = (ADC1->CR & ~(ADC_CR_ADCAL | ADC_CR_ADSTP | ADC_CR_ADSTART | ADC_CR_ADDIS)) | ADC_CR_ADDIS;
+  while (ADC1->CR & ADC_CR_ADEN) { }
+}
+
 #if REV == 1
   #define LED_OUT_PORT  GPIOB
   #define LED_OUT_PIN   (1 << 9)
 #elif REV == 2
   #define LED_OUT_PORT  GPIOA
   #define LED_OUT_PIN   (1 << 5)
+  #define CC1_ADC_CHANNEL 1
+  #define CC2_ADC_CHANNEL 4
 #endif
 
 int main()
@@ -281,6 +303,62 @@ int main()
   HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, 0);
 
   // For the electrodes, refer to `pull_electrodes()`
+
+  uint32_t cc_mV_max = 0;
+#if defined(CC1_ADC_CHANNEL) && defined(CC2_ADC_CHANNEL)
+{
+  // ======== ADC for CC pins ========
+  __HAL_RCC_ADC_CLK_ENABLE();
+  ADC_HandleTypeDef adc1 = {
+    .Instance = ADC1,
+    .Init = {
+      .ClockPrescaler = ADC_CLOCK_ASYNC_DIV1,
+      .Resolution = ADC_RESOLUTION_12B,
+      .DataAlign = ADC_DATAALIGN_RIGHT,
+      .ScanConvMode = ADC_SCAN_SEQ_FIXED,
+      .EOCSelection = ADC_EOC_SINGLE_CONV,
+      .LowPowerAutoWait = DISABLE,
+      .LowPowerAutoPowerOff = ENABLE,
+      .ContinuousConvMode = DISABLE,
+      .NbrOfConversion = 1,
+      .DiscontinuousConvMode = DISABLE,
+      .ExternalTrigConv = ADC_SOFTWARE_START,
+      .TriggerFrequencyMode = ADC_TRIGGER_FREQ_LOW,
+    },
+  };
+  HAL_ADC_Init(&adc1);
+  HAL_ADCEx_Calibration_Start(&adc1);
+  adc_stop();
+
+  ADC1->SMPR = 0b110; // 79.5 cycles
+
+  // Internal reference
+  ADC1_COMMON->CCR |= ADC_CCR_VREFEN;
+  ADC1->CHSELR = (1 << 13);
+  adc_start();
+  uint32_t adc_vrefint = adc_poll_value();
+  adc_stop();
+  ADC1_COMMON->CCR &= ~ADC_CCR_VREFEN;
+  // CC1
+  ADC1->CHSELR = (1 << CC1_ADC_CHANNEL);
+  adc_start();
+  uint32_t adc_cc1 = adc_poll_value();
+  adc_stop();
+  // CC2
+  ADC1->CHSELR = (1 << CC2_ADC_CHANNEL);
+  adc_start();
+  uint32_t adc_cc2 = adc_poll_value();
+  adc_stop();
+
+  uint32_t vrefint_cal = *VREFINT_CAL_ADDR;
+  uint32_t cc1_mV = (uint32_t)(3000ULL * adc_cc1 * vrefint_cal / (4095 * adc_vrefint));
+  uint32_t cc2_mV = (uint32_t)(3000ULL * adc_cc2 * vrefint_cal / (4095 * adc_vrefint));
+  cc_mV_max = (cc1_mV > cc2_mV ? cc1_mV : cc2_mV);
+  swv_printf("CC voltage %u | %u %u %u\n", cc_mV_max, adc_cc1, adc_cc2, adc_vrefint);
+
+  __HAL_RCC_ADC_CLK_DISABLE();
+}
+#endif
 
   // ======== Timer ========
   __HAL_RCC_TIM3_CLK_ENABLE();
