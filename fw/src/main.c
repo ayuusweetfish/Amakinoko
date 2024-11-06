@@ -680,10 +680,40 @@ if (0) {
 }
 #pragma GCC pop_options
 
-static void serial_rx_process_byte(uint8_t b)
+static uint8_t rx_len = 0;
+static uint8_t rx_buf[256];
+static uint8_t rx_ptr = 0;
+
+static void serial_rx_process_byte(uint8_t c)
 {
-  if (b == 48) {
-    HAL_UART_Transmit(&uart2, (uint8_t *)"hello", 5, HAL_MAX_DELAY);
+  static uint32_t last_timestamp = (uint32_t)-100;
+  uint32_t t = HAL_GetTick();
+  if (t - last_timestamp >= 100) {
+    // Reset
+    rx_len = 0;
+  }
+  last_timestamp = t;
+
+  if (rx_len == 0) {
+    if (c == 0) {
+      // Ignore empty packet
+    } else {
+      // Receive payload
+      rx_len = c;
+      rx_ptr = 0;
+    }
+  } else {
+    rx_buf[rx_ptr++] = c;
+    if (rx_ptr == rx_len) {
+      // Packet complete! Process payload
+
+      if (rx_len == 1 && rx_buf[0] == 0xAA) {
+        HAL_UART_Transmit(&uart2, (uint8_t *)"hello", 5, HAL_MAX_DELAY);
+      }
+
+      // Wait for next packet
+      rx_len = 0;
+    }
   }
 }
 
