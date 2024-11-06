@@ -39,6 +39,11 @@ static struct sp_port *port = NULL;
     "Ran into issue handling serial port: %s returned %d", #_call_result, (int)r); \
 } while (0)
 
+#define ensure_or_clear_early_with_msg(_call_result, ...) do { \
+  enum sp_return r = (_call_result); \
+  ensure_or_act(r == SP_OK, { port = NULL; return false; }, __VA_ARGS__); \
+} while (0)
+
 static bool close_port()
 {
   if (port != NULL) {
@@ -55,8 +60,8 @@ static bool open_port(const char *name, int baud_rate)
 {
   if (!close_port()) return false;
 
-  ensure_or_clear(sp_get_port_by_name(name, &port));
-  ensure_or_clear(sp_open(port, SP_MODE_READ_WRITE));
+  ensure_or_clear_early_with_msg(sp_get_port_by_name(name, &port), "Port no longer accessible");
+  ensure_or_clear_early_with_msg(sp_open(port, SP_MODE_READ_WRITE), "Cannot open port; check whether used by other programs");
   ensure_or_clear(sp_set_baudrate(port, baud_rate));
   ensure_or_clear(sp_set_bits(port, 8));
   ensure_or_clear(sp_set_parity(port, SP_PARITY_NONE));
@@ -154,27 +159,28 @@ static void btn_serial_port_refresh_clicked(uiButton *btn, void *_cbox_serial_po
 static void cbox_serial_port_changed(uiCombobox *c, void *_unused)
 {
 #define msgbox_clear_sel_and_continue() do { \
+  close_port(); \
   error_and_continue(); \
   uiComboboxSetSelected(c, -1); \
   return; \
 } while (0)
 
-#define ensure_or_msgbox(_cond, ...) \
-  ensure_or_act(_cond, msgbox_clear_sel_and_continue(), __VA_ARGS__)
+#define ensure_or_reject(_cond, ...) \
+  ensure_or_act(_cond, msgbox_clear_sel_and_continue();, __VA_ARGS__)
 
   int sel = uiComboboxSelected(c);
   if (sel < 0 || sel >= port_names_n) return;
-  if (!open_port(port_names[sel], 115200)) msgbox_clear_sel_and_continue();
+  if (!open_port(port_names[sel], 921600)) msgbox_clear_sel_and_continue();
 
   // Try to request first packet of data
   if (tx((uint8_t []){0xAA}, 1) < 0) msgbox_clear_sel_and_continue();
   int rx_len = rx();
   if (rx_len < 0) msgbox_clear_sel_and_continue();
 
-  ensure_or_msgbox(rx_len >= 11 &&
+  ensure_or_reject(rx_len >= 11 &&
     memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
   uint8_t revision = rx_buf[10];
-  ensure_or_msgbox(revision == 0x20, "Invalid device revision %u", (unsigned)revision);
+  ensure_or_reject(revision == 0x20, "Invalid device revision %u", (unsigned)revision);
 }
 
 static int window_on_closing(uiWindow *w, void *_unused)

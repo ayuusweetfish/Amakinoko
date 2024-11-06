@@ -235,7 +235,7 @@ static inline uint16_t offs_clamp_16(uint32_t x, uint32_t offs)
   return (x > 0xffff ? 0xffff : x);
 }
 
-#define TX_READINGS_LEN 11
+#define TX_READINGS_LEN 14
 static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
 {
   buf[ 0] = (frame_n >> 8) & 0xff;
@@ -248,7 +248,10 @@ static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
   buf[ 7] = (last_readings.h >> 0) & 0xff;
   buf[ 8] = (last_readings.i >> 8) & 0xff;
   buf[ 9] = (last_readings.i >> 0) & 0xff;
-  buf[10] = 0;
+  buf[10] = last_readings.c[0];
+  buf[11] = last_readings.c[1];
+  buf[12] = last_readings.c[2];
+  buf[13] = last_readings.c[3];
 }
 
 int main()
@@ -310,7 +313,7 @@ int main()
   uart2 = (UART_HandleTypeDef){
     .Instance = USART2,
     .Init = (UART_InitTypeDef){
-      .BaudRate = 115200,
+      .BaudRate = 921600,
       .WordLength = UART_WORDLENGTH_8B,
       .StopBits = UART_STOPBITS_1,
       .Parity = UART_PARITY_NONE,
@@ -507,7 +510,7 @@ int main()
     r->p = offs_clamp_16(p, 65536);
     r->h = offs_clamp_16(h, 0);
     r->i = offs_clamp_16(i, 0);
-    for (int j = 0; j < 4; j++) r->c[i] = (cap[j] > 0xff ? 0xff : cap[j]);
+    for (int j = 0; j < 4; j++) r->c[j] = (cap[j] > 0xff ? 0xff : cap[j]);
     return true;
   }
 
@@ -746,7 +749,7 @@ static void serial_rx_process_byte(uint8_t c)
       // Packet complete! Process payload
 
       if (rx_len == 1 && rx_buf[0] == 0xAA) {
-        delay_us(100);
+        delay_us(1000);
         uint8_t readings_buf[TX_READINGS_LEN];
         fill_tx_readings(readings_buf);
         HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
