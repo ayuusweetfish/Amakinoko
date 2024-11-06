@@ -24,6 +24,8 @@ define hook-quit
 end
 target extended-remote localhost:3333
 
+set pagination off
+
 b swv_trap_line
 commands
   silent
