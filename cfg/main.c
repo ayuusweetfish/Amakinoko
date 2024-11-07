@@ -133,6 +133,8 @@ static inline int tx(const uint8_t *buf, uint8_t len);
 static pthread_t serial_loop_thr;
 static void *serial_loop_fn(void *_unused);
 
+static void start_list_refresh_timer_if_unconnected();
+
 static bool close_port()
 {
   if (port != NULL) {
@@ -140,6 +142,7 @@ static bool close_port()
     clear_readings_disp();
     struct sp_port *saved_port = port;
     port = NULL;
+    start_list_refresh_timer_if_unconnected();
     if (pthread_kill(serial_loop_thr, 0) == 0)  // Is valid thread?
       ensure_or_clear(0, pthread_join(serial_loop_thr, NULL));
     ensure_or_clear(SP_OK, sp_close(saved_port));
@@ -229,32 +232,42 @@ static void *serial_loop_fn(void *_unused)
 
 #undef ensure_or_clear
 
+static uiCombobox *cbox_serial_port;
 static int port_names_n = 0;
 static char **port_names = NULL;
-static void btn_serial_port_refresh_clicked(uiButton *btn, void *_cbox_serial_port)
+static bool timer_running = false;
+static void serial_ports_refresh(void *_unused)
 {
-  uiCombobox *cbox_serial_port = (uiCombobox *)_cbox_serial_port;
-
   int last_sel = uiComboboxSelected(cbox_serial_port);
   char *last_sel_name = NULL;
   if (last_sel >= 0 && last_sel < port_names_n)
     last_sel_name = port_names[last_sel];
   uiComboboxClear(cbox_serial_port);
 
+#define port_valid(_port) \
+  (sp_get_port_transport(_port) == SP_TRANSPORT_USB)
+
   struct sp_port **port_list;
   ensure_or_abort(sp_list_ports(&port_list) >= 0, "Cannot retrieve list of ports");
-  int n;
-  for (n = 0; port_list[n] != NULL; n++) { }
+  int n = 0;
+  for (int i = 0; port_list[i] != NULL; i++)
+    if (port_valid(port_list[i])) n++;
   char **new_names = malloc(sizeof(char *) * n);
   ensure_or_abort(new_names != NULL, "Out of memory");
 
   int new_sel = -1;
-  for (int i = 0; port_list[i] != NULL; i++) {
-    new_names[i] = strdup(sp_get_port_name(port_list[i]));
-    ensure_or_abort(new_names[i] != NULL, "Out of memory");
-    uiComboboxAppend(cbox_serial_port, new_names[i]);
-    if (last_sel_name != NULL && strcmp(last_sel_name, new_names[i]) == 0)
-      new_sel = i;
+  for (int i = 0, n1 = 0; port_list[i] != NULL; i++) if (port_valid(port_list[i])) {
+    const char *product_name = sp_get_port_usb_product(port_list[i]);
+    const char *port_name = sp_get_port_name(port_list[i]);
+    new_names[n1] = strdup(port_name);
+    char *disp;
+    asprintf(&disp, "%s (%s)", product_name, port_name);
+    ensure_or_abort(new_names[n1] != NULL && disp != NULL, "Out of memory");
+    uiComboboxAppend(cbox_serial_port, disp);
+    free(disp);
+    if (last_sel_name != NULL && strcmp(last_sel_name, new_names[n1]) == 0)
+      new_sel = n1;
+    n1++;
   }
 
   sp_free_port_list(port_list);
@@ -270,6 +283,25 @@ static void btn_serial_port_refresh_clicked(uiButton *btn, void *_cbox_serial_po
   }
   port_names_n = n;
   port_names = new_names;
+
+  start_list_refresh_timer_if_unconnected();
+}
+static void btn_serial_port_refresh_clicked(uiButton *btn, void *_unused)
+{
+  serial_ports_refresh(NULL);
+}
+static int serial_ports_refresh_timer(void *_unused)
+{
+  serial_ports_refresh(NULL);
+  timer_running = (port == NULL);
+  return timer_running;
+}
+static void start_list_refresh_timer_if_unconnected()
+{
+  if (port == NULL && !timer_running) {
+    timer_running = true;
+    uiTimer(1000, serial_ports_refresh_timer, NULL);
+  }
 }
 
 static void cbox_serial_port_changed(uiCombobox *c, void *_unused)
@@ -350,7 +382,7 @@ int main()
       uiLabel *lbl = uiNewLabel("串口");
       uiBoxAppend(box_serial_port_r1, uiControl(lbl), 0);
 
-      uiCombobox *cbox_serial_port = uiNewCombobox();
+      cbox_serial_port = uiNewCombobox();
       uiBoxAppend(box_serial_port_r1, uiControl(cbox_serial_port), 1);
       uiComboboxOnSelected(cbox_serial_port, cbox_serial_port_changed, NULL);
 
