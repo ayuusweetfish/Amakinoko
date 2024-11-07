@@ -788,7 +788,8 @@ void tx_readings_if_connected()
   uint8_t readings_buf[TX_READINGS_LEN];
   fill_tx_readings(readings_buf);
   __disable_irq();
-  HAL_UART_Transmit(&uart2, &(uint8_t){ TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
+  HAL_UART_Transmit(&uart2, (uint8_t []){ TX_READINGS_LEN + 1 }, 1, HAL_MAX_DELAY);
+  HAL_UART_Transmit(&uart2, (uint8_t []){ 0x56 }, 1, HAL_MAX_DELAY);
   HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
   __enable_irq();
 }

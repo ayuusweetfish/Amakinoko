@@ -71,10 +71,18 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uiLabelSetText(lbl_readings_i, s);
   uiAreaQueueRedrawAll(area_readings_c_indicators);
 }
-static void parse_readings_arg(void *buf)
+
+// buf[0] is length; buf[1..=length] is payload
+static void parse_continuous_rx(void *_buf)
 {
-  parse_readings((const uint8_t *)buf);
-  free(buf);
+  uint8_t *buf = _buf;
+  uint8_t len = buf[0];
+  buf++;
+  // 0x56, <readings>
+  if (len == TX_READINGS_LEN + 1 && buf[0] == 0x56) {
+    parse_readings((const uint8_t *)(buf + 1));
+  }
+  free(_buf);
 }
 
 static void indicators_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
@@ -204,10 +212,11 @@ static void *serial_loop_fn(void *_unused)
   while (port != NULL) {
     int len = rx_timeout(buf, 50);
     if (len != -1) {
-      uint8_t *buf_dup = malloc(len);
+      uint8_t *buf_dup = malloc(len + 1);
       if (buf_dup != NULL) {
-        memcpy(buf_dup, buf, len);
-        uiQueueMain(parse_readings_arg, buf_dup);
+        buf_dup[0] = (uint8_t)len;
+        memcpy(buf_dup + 1, buf, len);
+        uiQueueMain(parse_continuous_rx, buf_dup);
       } else {
         fprintf(stderr, "Out of memory!\n");
       }
