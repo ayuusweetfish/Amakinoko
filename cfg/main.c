@@ -1,9 +1,11 @@
 #include "libui/ui.h"
 #include "libserialport/libserialport.h"
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h> // usleep
 
 static uiWindow *w;
 
@@ -69,6 +71,11 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uiLabelSetText(lbl_readings_i, s);
   uiAreaQueueRedrawAll(area_readings_c_indicators);
 }
+static void parse_readings_arg(void *buf)
+{
+  parse_readings((const uint8_t *)buf);
+  free(buf);
+}
 
 static void indicators_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
@@ -102,9 +109,9 @@ static int indicators_key(uiAreaHandler *ah, uiArea *area, uiAreaKeyEvent *e)
 }
 
 static struct sp_port *port = NULL;
-#define ensure_or_clear(_call_result) do { \
+#define ensure_or_clear(_ok, _call_result) do { \
   enum sp_return r = (_call_result); \
-  ensure_or_act(r == SP_OK, { close_port(); port = NULL; return false; }, \
+  ensure_or_act(r == (_ok), { close_port(); port = NULL; return false; }, \
     "Ran into issue handling serial port: %s returned %d", #_call_result, (int)r); \
 } while (0)
 
@@ -113,14 +120,22 @@ static struct sp_port *port = NULL;
   ensure_or_act(r == SP_OK, { port = NULL; return false; }, __VA_ARGS__); \
 } while (0)
 
+static inline int tx(const uint8_t *buf, uint8_t len);
+
+static pthread_t serial_loop_thr;
+static void *serial_loop_fn(void *_unused);
+
 static bool close_port()
 {
   if (port != NULL) {
+    tx((uint8_t []){ 0xBB }, 1);  // Ignore result, close anyway
     clear_readings_disp();
     struct sp_port *saved_port = port;
     port = NULL;
+    if (pthread_kill(serial_loop_thr, 0) == 0)  // Is valid thread?
+      ensure_or_clear(0, pthread_join(serial_loop_thr, NULL));
+    ensure_or_clear(SP_OK, sp_close(saved_port));
     fprintf(stderr, "Serial port closed\n");
-    ensure_or_clear(sp_close(saved_port));
   }
   return true;
 }
@@ -132,14 +147,14 @@ static bool open_port(const char *name, int baud_rate)
 
   ensure_or_clear_early_with_msg(sp_get_port_by_name(name, &port), "Port no longer accessible");
   ensure_or_clear_early_with_msg(sp_open(port, SP_MODE_READ_WRITE), "Cannot open port; check whether used by other programs");
-  ensure_or_clear(sp_set_baudrate(port, baud_rate));
-  ensure_or_clear(sp_set_bits(port, 8));
-  ensure_or_clear(sp_set_parity(port, SP_PARITY_NONE));
-  ensure_or_clear(sp_set_stopbits(port, 1));
-  ensure_or_clear(sp_set_flowcontrol(port, SP_FLOWCONTROL_NONE));
-  ensure_or_clear(sp_set_dtr(port, SP_DTR_ON));
+  ensure_or_clear(SP_OK, sp_set_baudrate(port, baud_rate));
+  ensure_or_clear(SP_OK, sp_set_bits(port, 8));
+  ensure_or_clear(SP_OK, sp_set_parity(port, SP_PARITY_NONE));
+  ensure_or_clear(SP_OK, sp_set_stopbits(port, 1));
+  ensure_or_clear(SP_OK, sp_set_flowcontrol(port, SP_FLOWCONTROL_NONE));
+  ensure_or_clear(SP_OK, sp_set_dtr(port, SP_DTR_ON));
 
-  ensure_or_clear(sp_flush(port, SP_BUF_BOTH));
+  ensure_or_clear(SP_OK, sp_flush(port, SP_BUF_BOTH));
 
   return true;
 }
@@ -161,24 +176,46 @@ static inline int tx(const uint8_t *buf, uint8_t len)
   return len;
 }
 
-static uint8_t rx_buf[256];
-static inline int rx()
+static inline int rx_timeout(uint8_t *buf, unsigned timeout)
 {
   int n_rx;
   uint8_t len;
 
-  n_rx = sp_blocking_read(port, &len, 1, 100);
+  n_rx = sp_blocking_read(port, &len, 1, timeout);
   ensure_or_ret(-1, n_rx == 1, "Did not receive packet header");
 
   fprintf(stderr, "rx [%02x]", len);
   if (len > 0) {
-    n_rx = sp_blocking_read(port, rx_buf, len, 100);
+    n_rx = sp_blocking_read(port, buf, len, 50);
     ensure_or_ret(-1, n_rx == len, "Did not receive packet payload");
-    for (int i = 0; i < n_rx; i++) fprintf(stderr, " %02x", (int)rx_buf[i]);
+    for (int i = 0; i < n_rx; i++) fprintf(stderr, " %02x", (int)buf[i]);
     fprintf(stderr, "\n");
   }
 
   return len;
+}
+
+static uint8_t rx_buf[256];
+static inline int rx() { return rx_timeout(rx_buf, 50); }
+
+static void *serial_loop_fn(void *_unused)
+{
+  uint8_t buf[256];
+  while (port != NULL) {
+    int len = rx_timeout(buf, 50);
+    if (len != -1) {
+      uint8_t *buf_dup = malloc(len);
+      if (buf_dup != NULL) {
+        memcpy(buf_dup, buf, len);
+        uiQueueMain(parse_readings_arg, buf_dup);
+      } else {
+        fprintf(stderr, "Out of memory!\n");
+      }
+    } else {
+      usleep(50000);
+    }
+  }
+  return NULL;
 }
 
 #undef ensure_or_clear
@@ -254,6 +291,10 @@ static void cbox_serial_port_changed(uiCombobox *c, void *_unused)
 
   ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
   parse_readings(rx_buf + 11);
+
+  ensure_or_reject(
+    pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,
+    "Cannot create thread, check system resource usage");
 }
 
 static int window_on_closing(uiWindow *w, void *_unused)
