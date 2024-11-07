@@ -32,6 +32,75 @@ static void error_and_continue()
   uiMsgBox(w, "", global_err_msg);
 }
 
+static uiLabel
+  *lbl_readings_t, *lbl_readings_p, *lbl_readings_h, *lbl_readings_i;
+static uiArea *area_readings_c_indicators;
+
+static uint8_t readings_touch[4] = { 0 };
+
+static void clear_readings_disp()
+{
+  uiLabelSetText(lbl_readings_t, "温度：— ˚C");
+  uiLabelSetText(lbl_readings_p, "气压：— hPa");
+  uiLabelSetText(lbl_readings_h, "湿度：— % RH");
+  uiLabelSetText(lbl_readings_i, "光照：— lx");
+  for (int i = 0; i < 4; i++) readings_touch[i] = 0;
+  uiAreaQueueRedrawAll(area_readings_c_indicators);
+}
+
+#define TX_READINGS_LEN 14
+static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
+{
+  uint16_t T = ((uint16_t)buf[ 0] << 8) | buf[ 1];
+  uint16_t t = ((uint16_t)buf[ 2] << 8) | buf[ 3];
+  uint16_t p = ((uint16_t)buf[ 4] << 8) | buf[ 5];
+  uint16_t h = ((uint16_t)buf[ 6] << 8) | buf[ 7];
+  uint16_t i = ((uint16_t)buf[ 8] << 8) | buf[ 9];
+  memcpy(readings_touch, buf + 10, 4);
+
+  char s[64];
+  snprintf(s, sizeof s, "温度：%.2f ˚C", (double)t / 100);
+  uiLabelSetText(lbl_readings_t, s);
+  snprintf(s, sizeof s, "气压：%.2f hPa", (double)((uint32_t)p + 65536) / 100);
+  uiLabelSetText(lbl_readings_p, s);
+  snprintf(s, sizeof s, "湿度：%.2f%% RH", (double)h / 100);
+  uiLabelSetText(lbl_readings_h, s);
+  snprintf(s, sizeof s, "光照：%d lx", (int)i);
+  uiLabelSetText(lbl_readings_i, s);
+  uiAreaQueueRedrawAll(area_readings_c_indicators);
+}
+
+static void indicators_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  for (int i = 0; i < 4; i++) {
+    uiDrawPath *path = uiDrawNewPath(uiDrawFillModeWinding);
+    const double r = 6, sw = 2, margin = 2;
+    double x = sw + r + (r * 2 + margin) * i, y = p->AreaHeight / 2;
+    uiDrawPathNewFigure(path, x, y);
+    uiDrawPathArcTo(path, x, y, r, 0, uiPi * 2, false);
+    uiDrawPathEnd(path);
+
+    uiDrawFill(p->Context, path, &(uiDrawBrush){
+      .Type = uiDrawBrushTypeSolid,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.1 + 0.9 / 255 * readings_touch[i],
+    });
+    uiDrawFreePath(path);
+  }
+}
+static void indicators_ptr_event(uiAreaHandler *ah, uiArea *area, uiAreaMouseEvent *e)
+{
+}
+static void indicators_hover(uiAreaHandler *ah, uiArea *area, int left)
+{
+}
+static void indicators_drag_broken(uiAreaHandler *ah, uiArea *area)
+{
+}
+static int indicators_key(uiAreaHandler *ah, uiArea *area, uiAreaKeyEvent *e)
+{
+  return false;
+}
+
 static struct sp_port *port = NULL;
 #define ensure_or_clear(_call_result) do { \
   enum sp_return r = (_call_result); \
@@ -47,6 +116,7 @@ static struct sp_port *port = NULL;
 static bool close_port()
 {
   if (port != NULL) {
+    clear_readings_disp();
     struct sp_port *saved_port = port;
     port = NULL;
     fprintf(stderr, "Serial port closed\n");
@@ -181,6 +251,9 @@ static void cbox_serial_port_changed(uiCombobox *c, void *_unused)
     memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
   uint8_t revision = rx_buf[10];
   ensure_or_reject(revision == 0x20, "Invalid device revision %u", (unsigned)revision);
+
+  ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
+  parse_readings(rx_buf + 11);
 }
 
 static int window_on_closing(uiWindow *w, void *_unused)
@@ -236,6 +309,46 @@ int main()
       uiButtonOnClicked(btn_serial_port_refresh, btn_serial_port_refresh_clicked, cbox_serial_port);
       btn_serial_port_refresh_clicked(btn_serial_port_refresh, cbox_serial_port);
     }
+  }
+
+  uiBox *box_readings = uiNewHorizontalBox();
+  uiBoxSetPadded(box_readings, 1);
+  uiBoxAppend(box_main, uiControl(box_readings), 0);
+  {
+    uiBox *parent = box_readings;
+
+    lbl_readings_t = uiNewLabel("");
+    uiBoxAppend(parent, uiControl(lbl_readings_t), true);
+    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
+    lbl_readings_p = uiNewLabel("");
+    uiBoxAppend(parent, uiControl(lbl_readings_p), true);
+    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
+    lbl_readings_h = uiNewLabel("");
+    uiBoxAppend(parent, uiControl(lbl_readings_h), true);
+    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
+    lbl_readings_i = uiNewLabel("");
+    uiBoxAppend(parent, uiControl(lbl_readings_i), true);
+    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
+
+    uiBox *box_readings_c_container = uiNewHorizontalBox();
+    uiBoxAppend(parent, uiControl(box_readings_c_container), true);
+    {
+      uiBox *parent = box_readings_c_container;
+      uiLabel *lbl_readings_c_caption = uiNewLabel("触摸：");
+      uiBoxAppend(parent, uiControl(lbl_readings_c_caption), false);
+
+      static uiAreaHandler ah = {
+        .Draw = indicators_draw,
+        .MouseEvent = indicators_ptr_event,
+        .MouseCrossed = indicators_hover,
+        .DragBroken = indicators_drag_broken,
+        .KeyEvent = indicators_key,
+      };
+      area_readings_c_indicators = uiNewArea(&ah);
+      uiBoxAppend(parent, uiControl(area_readings_c_indicators), true);
+    }
+
+    clear_readings_disp();
   }
 
   // Run main loop
