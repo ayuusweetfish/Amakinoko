@@ -81,6 +81,7 @@ static UART_HandleTypeDef uart2;
 static uint8_t rx_byte;
 
 static void run();
+static void tx_readings_if_connected();
 
 // Pull a set of pins to a given level and set them as input
 static inline void pull_electrodes_port(GPIO_TypeDef *port, uint32_t pins, bool level)
@@ -591,6 +592,7 @@ if (0) {
 
   uint32_t tick = HAL_GetTick();
   uint32_t last_sensors_start = tick;
+  uint32_t last_sensors_tx = tick - 1000;
   while (1) {
     __disable_irq();
     run();
@@ -605,6 +607,10 @@ if (0) {
         last_sensors_start = cur;
         last_readings = r;
         last_readings_valid = true;
+        if (cur - last_sensors_tx >= 100) {
+          tx_readings_if_connected();
+          last_sensors_tx = cur;
+        }
       } else {
         swv_printf("Reading invalid! Check connections\n");
       }
@@ -721,6 +727,12 @@ if (0) {
 }
 #pragma GCC pop_options
 
+// For Rev. 2, this is set with any well-formatted packet and cleared with a goodbyte packet (0xBB).
+// Turned off during packet reception; stays off after a broken packet, but
+// transmission restarts once re-initialisation happens.
+// For future revisions, this can be based on CH343's ACT# signal or possibly hardware flow control.
+static bool rx_connected = false;
+
 static uint8_t rx_len = 0;
 static uint8_t rx_buf[256];
 static uint8_t rx_ptr = 0;
@@ -742,11 +754,13 @@ static void serial_rx_process_byte(uint8_t c)
       // Receive payload
       rx_len = c;
       rx_ptr = 0;
+      rx_connected = false;
     }
   } else {
     rx_buf[rx_ptr++] = c;
     if (rx_ptr == rx_len) {
       // Packet complete! Process payload
+      rx_connected = true;
 
       if (rx_len == 1 && rx_buf[0] == 0xAA) {
         delay_us(1000);
@@ -757,10 +771,26 @@ static void serial_rx_process_byte(uint8_t c)
         HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
       }
 
+      else if (rx_len == 1 && rx_buf[0] == 0xBB) {
+        rx_connected = false;
+      }
+
       // Wait for next packet
       rx_len = 0;
     }
   }
+}
+
+void tx_readings_if_connected()
+{
+  if (!rx_connected) return;
+
+  uint8_t readings_buf[TX_READINGS_LEN];
+  fill_tx_readings(readings_buf);
+  __disable_irq();
+  HAL_UART_Transmit(&uart2, &(uint8_t){ TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
+  HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
+  __enable_irq();
 }
 
 void SysTick_Handler()
