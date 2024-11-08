@@ -233,10 +233,31 @@ static void *serial_loop_fn(void *_unused)
 #undef ensure_or_clear
 
 static uiCombobox *cbox_serial_port;
+static uiButton *btn_serial_port_conn;
 static int port_names_n = 0;
 static char **port_names = NULL;
 static bool timer_running = false;
-static void serial_ports_refresh(void *_unused)
+
+static void update_cbox_disp()
+{
+  if (port_names_n > 0) {
+    uiControlEnable(uiControl(btn_serial_port_conn));
+    if (port == NULL) {
+      uiControlEnable(uiControl(cbox_serial_port));
+      if (uiComboboxSelected(cbox_serial_port) < 0)
+        uiComboboxSetSelected(cbox_serial_port, 0);
+      uiButtonSetText(btn_serial_port_conn, "连接");
+    } else {
+      uiControlDisable(uiControl(cbox_serial_port));
+      uiButtonSetText(btn_serial_port_conn, "断开");
+    }
+  } else {
+    uiControlDisable(uiControl(btn_serial_port_conn));
+    uiButtonSetText(btn_serial_port_conn, "连接");
+  }
+}
+
+static void serial_ports_refresh()
 {
   int last_sel = uiComboboxSelected(cbox_serial_port);
   char *last_sel_name = NULL;
@@ -284,15 +305,13 @@ static void serial_ports_refresh(void *_unused)
   port_names_n = n;
   port_names = new_names;
 
+  update_cbox_disp();
+
   start_list_refresh_timer_if_unconnected();
-}
-static void btn_serial_port_refresh_clicked(uiButton *btn, void *_unused)
-{
-  serial_ports_refresh(NULL);
 }
 static int serial_ports_refresh_timer(void *_unused)
 {
-  serial_ports_refresh(NULL);
+  serial_ports_refresh();
   timer_running = (port == NULL);
   return timer_running;
 }
@@ -300,23 +319,24 @@ static void start_list_refresh_timer_if_unconnected()
 {
   if (port == NULL && !timer_running) {
     timer_running = true;
-    uiTimer(1000, serial_ports_refresh_timer, NULL);
+    uiTimer(500, serial_ports_refresh_timer, NULL);
   }
 }
 
-static void cbox_serial_port_changed(uiCombobox *c, void *_unused)
+static void conn()
 {
 #define msgbox_clear_sel_and_continue() do { \
   close_port(); \
   error_and_continue(); \
-  uiComboboxSetSelected(c, -1); \
+  uiComboboxSetSelected(cbox_serial_port, port_names_n > 0 ? 0 : -1); \
+  update_cbox_disp(); \
   return; \
 } while (0)
 
 #define ensure_or_reject(_cond, ...) \
   ensure_or_act(_cond, msgbox_clear_sel_and_continue();, __VA_ARGS__)
 
-  int sel = uiComboboxSelected(c);
+  int sel = uiComboboxSelected(cbox_serial_port);
   if (sel < 0 || sel >= port_names_n) return;
   if (!open_port(port_names[sel], 921600)) msgbox_clear_sel_and_continue();
 
@@ -336,6 +356,18 @@ static void cbox_serial_port_changed(uiCombobox *c, void *_unused)
   ensure_or_reject(
     pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,
     "Cannot create thread, check system resource usage");
+
+  update_cbox_disp();
+}
+
+static void btn_serial_port_conn_clicked(uiButton *btn, void *_unused)
+{
+  if (port == NULL) {
+    conn();
+  } else {
+    close_port();
+    update_cbox_disp();
+  }
 }
 
 static int window_on_closing(uiWindow *w, void *_unused)
@@ -384,12 +416,12 @@ int main()
 
       cbox_serial_port = uiNewCombobox();
       uiBoxAppend(box_serial_port_r1, uiControl(cbox_serial_port), 1);
-      uiComboboxOnSelected(cbox_serial_port, cbox_serial_port_changed, NULL);
 
-      uiButton *btn_serial_port_refresh = uiNewButton("刷新");
-      uiBoxAppend(box_serial_port_r1, uiControl(btn_serial_port_refresh), 0);
-      uiButtonOnClicked(btn_serial_port_refresh, btn_serial_port_refresh_clicked, cbox_serial_port);
-      btn_serial_port_refresh_clicked(btn_serial_port_refresh, cbox_serial_port);
+      btn_serial_port_conn = uiNewButton("");
+      uiBoxAppend(box_serial_port_r1, uiControl(btn_serial_port_conn), 0);
+      uiButtonOnClicked(btn_serial_port_conn, btn_serial_port_conn_clicked, cbox_serial_port);
+      btn_serial_port_conn_clicked(btn_serial_port_conn, cbox_serial_port);
+      serial_ports_refresh(); // Will start timer
     }
   }
 
