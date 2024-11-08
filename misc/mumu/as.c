@@ -13,11 +13,12 @@ enum mnemonic_word {
   MN_LD, MN_ST, MN_LDC, MN_LDCR,
   MN_BR, MN_BR_END = MN_BR + MN_B_COUNT,
   MN_BA, MN_BA_END = MN_BA + MN_B_COUNT,
+  MN_PUSH, MN_POP, MN_CALL, MN_RET,
   MN_SC,
 
   MN_DATA,
 };
-static uint8_t mnemonic_trie[80][27];
+static uint8_t mnemonic_trie[100][27];
 
 static void init_trie()
 {
@@ -42,6 +43,10 @@ static void init_trie()
     {"ldcr", MN_LDCR},
     {"br", MN_BR},
     {"ba", MN_BA},
+    {"push", MN_PUSH},
+    {"pop", MN_POP},
+    {"call", MN_CALL},
+    {"ret", MN_RET},
     {"sc", MN_SC},
     {"data", MN_DATA},
   }, conditions[] = {
@@ -279,6 +284,7 @@ uint32_t assemble(
     typedef struct {
       enum operand_type_t {
         REGISTER,
+        REGISTER_RANGE,
         IMMEDIATE,
         LABEL_B,
         LABEL_F,
@@ -315,6 +321,20 @@ uint32_t assemble(
               limit - 1);
         }
         o.n = n;
+        if (c == '-' && o.ty == REGISTER) {
+          o.ty = REGISTER_RANGE;
+          c = my_getchar();
+          if (c != '%') report_error_here("Expected register index starting with %%");
+          uint32_t n = 0;
+          while ((c = my_getchar()) >= '0' && c <= '9') {
+            n = n * 10 + (c - '0');
+            if (n >= ((uint32_t)1 << 8))
+              report_error_pos(start_pos, "Register index out of range: expected <= 255");
+          }
+          if (n < o.n)
+            report_error_pos(start_pos, "Register range should go upward");
+          o.n |= ((n - o.n + 1) << 8);
+        }
         my_ungetchar(c);
       } else if (isalpha(c)) {
         int dir = my_getchar();
@@ -388,13 +408,10 @@ uint32_t assemble(
       } else if (mnemonic >= MN_BR && mnemonic < MN_BR_END) {
         if (mnemonic == MN_BR + MN_B_AL && n_operands == 1 &&
             (operands[0].ty == LABEL_B || operands[0].ty == LABEL_F)) {
-          // XXX: Temporary approach, refactor to unify label handling
-          n_operands = 3;
-          operands[2] = operands[0];
-          operands_pos[2] = operands_pos[0];
-          operands[0] = operands[1] = (operand_t){ .ty = REGISTER, .n = 0 };
-        }
-        if (n_operands == 3 &&
+          uint16_t offset = 0;
+          process_label_offset(operands[0], operands_pos[0], false, &offset);
+          emit_24(0xB0, offset);
+        } else if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
             operands[2].ty == REGISTER) {
@@ -417,6 +434,39 @@ uint32_t assemble(
             operands[1].ty == REGISTER &&
             operands[2].ty == REGISTER) {
           emit(0xA0 + (mnemonic - MN_BA), operands[0].n, operands[1].n, operands[2].n);
+        } else {
+          report_error(instr_ln, "Invalid operands");
+        }
+      } else if (mnemonic == MN_PUSH) {
+        if (n_operands == 1 && operands[0].ty == REGISTER) {
+          emit(0xC0, 0x01, operands[0].n, 0x00);
+        } else if (n_operands == 1 && operands[0].ty == REGISTER_RANGE) {
+          emit(0xC0,
+            (operands[0].n >> 8) & 0xff,
+            (operands[0].n >> 0) & 0xff,
+            0x00);
+        } else {
+          report_error(instr_ln, "Invalid operands");
+        }
+      } else if (mnemonic == MN_CALL) {
+        if (n_operands == 1 &&
+            (operands[0].ty == LABEL_B || operands[0].ty == LABEL_F)) {
+          uint16_t offset = 0;
+          process_label_offset(operands[0], operands_pos[0], false, &offset);
+          emit_24(0xC1, offset);
+        } else {
+          report_error(instr_ln, "Invalid operands");
+        }
+      } else if (mnemonic == MN_POP || mnemonic == MN_RET) {
+        if (mnemonic == MN_RET && n_operands == 0) {
+          emit(0xC9, 0x00, 0x00, 0x00);
+        } else if (n_operands == 1 && operands[0].ty == REGISTER) {
+          emit(mnemonic == MN_POP ? 0xC8 : 0xC9, 0x01, operands[0].n, 0x00);
+        } else if (n_operands == 1 && operands[0].ty == REGISTER_RANGE) {
+          emit(mnemonic == MN_POP ? 0xC8 : 0xC9,
+            (operands[0].n >> 8) & 0xff,
+            (operands[0].n >> 0) & 0xff,
+            0x00);
         } else {
           report_error(instr_ln, "Invalid operands");
         }

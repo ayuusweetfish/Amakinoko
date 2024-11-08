@@ -96,6 +96,13 @@ void mumu_run(mumu_vm_t *restrict m)
       break;
     }
 
+    case 0xB: {
+      if (opcode == 0xB0) {
+        pc = (instr >> 0) & 0xFFFFFF;
+      }
+      break;
+    }
+
     case 0xC: {
       uint32_t sp = RAM(MUMU_RAM_SIZE - 1);
       uint8_t a = (instr >> 16) & 0xFF;
@@ -134,6 +141,7 @@ void mumu_run(mumu_vm_t *restrict m)
         break;
       default: break;
       }
+      RAM(MUMU_RAM_SIZE - 1) = sp;
       break;
     }
 
