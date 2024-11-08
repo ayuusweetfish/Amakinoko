@@ -93,11 +93,54 @@ void mumu_run(mumu_vm_t *restrict m)
               ty == 0x9 ? pc + RAM(c) :
                           RAM(c));
       }
+      break;
+    }
+
+    case 0xC: {
+      uint32_t sp = RAM(MUMU_RAM_SIZE - 1);
+      uint8_t a = (instr >> 16) & 0xFF;
+      uint8_t b = (instr >>  8) & 0xFF;
+      uint8_t i = (instr >>  0) & 0xFF;
+      switch (opcode) {
+      case 0xC0:  // push <A> <B>
+        sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(b + i);
+        break;
+      case 0xC1:  // call <Imm24>
+        RAM(--sp) = pc;
+        pc = (instr >> 0) & 0xFFFFFF;
+        break;
+      // 0xC2, 0xC3, 0xC4 unused and untested
+      case 0xC2:  // call <A> <B> <Imm8>
+        RAM(--sp) = pc;
+        sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(b + i);
+        pc += (int8_t)i;
+        break;
+      case 0xC3:  // callf <A> <Imm16>
+        RAM(--sp) = pc;
+        sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(i);
+        pc += (int16_t)((instr >> 0) & 0xFFFF);
+        break;
+      case 0xC4:  // calla <A> <B> <C>
+        RAM(--sp) = pc;
+        sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(i);
+        pc = RAM(i);
+        break;
+      case 0xC8:  // pop <A> <B>
+        for (uint8_t i = 0; i != a; i++) RAM(b + i) = RAM(sp + i); sp += a;
+        break;
+      case 0xC9:  // ret <A> <B>
+        for (uint8_t i = 0; i != a; i++) RAM(b + i) = RAM(sp + i); sp += a;
+        pc = RAM(sp++);
+        break;
+      default: break;
+      }
+      break;
     }
 
     case 0x0: {
       uint32_t syscall = instr & (((uint32_t)1 << 24) - 1);
       if (syscall == 0) goto _fin;
+      break;
     }
 
     default: break;

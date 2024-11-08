@@ -14,11 +14,13 @@ B:
   # Load [Z+0] from ROM
   mov %1, Zf  # Load address
   ldc %1, %1, =0
+  # call Ff
   sc =0
 C:
   mov %0, %1
   mov %1, Zf
   ldc %1, %1, =1
+  # call Ff
   sc =0
 
 Z:
@@ -26,3 +28,7 @@ Z:
   baal %0, %1, %2
   br Cb
   ba %2
+
+F:
+  # add %1, =1
+  # ret =0, =0

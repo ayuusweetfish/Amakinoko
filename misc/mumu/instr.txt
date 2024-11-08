@@ -1,6 +1,7 @@
 - RAM & ROM unit of 4 bytes
 - Harvard architecture, program executes from ROM
 - General purpose registers 0x00~0xff shared with RAM
+- SP is fixed at last memory element
 - Program counter PC invisible from program
 - Instruction encoding is 4-byte; the first byte is opcode
 
@@ -26,6 +27,17 @@ br<cond>  <A> <B> <Imm8>  PC := PC + Imm8
 brr<cond> <A> <B> <C>     PC := PC + C
 ba<cond>  <A> <B> <C>     PC := C
 - <cond>: al/eq/ne/gt/lt/ge/le/sgt/slt/sge/sle
+baf       <Imm24>         PC := Imm24
+
+Stack & subroutines
+# opcode: Cx
+push  <A> <B>         SP := SP - B; store A registers starting from B
+pop   <A> <B>
+call  <Imm24>         push PC; baf Imm24
+# call  <A> <B> <Imm8>  push PC; push A B; br Imm8
+# callf <A> <Imm16>     push PC; push =0 A; br Imm16
+# calla <A> <B> <C>     push PC; push =0 A; ba C
+ret   <A> <B>         pop A B; pop PC
 
 System
 # opcode: 0x
