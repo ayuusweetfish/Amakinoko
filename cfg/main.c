@@ -174,10 +174,10 @@ static inline int tx(const uint8_t *buf, uint8_t len)
 {
   int n_tx;
 
-  n_tx = sp_blocking_write(port, &len, 1, 100);
+  n_tx = sp_blocking_write(port, &len, 1, 10);
   ensure_or_ret(-1, n_tx == 1, "Cannot write to port");
 
-  n_tx = sp_blocking_write(port, buf, len, 100);
+  n_tx = sp_blocking_write(port, buf, len, 10);
   ensure_or_ret(-1, n_tx == len, "Cannot write to port");
 
   fprintf(stderr, "tx [%02x]", (unsigned)len);
@@ -187,12 +187,12 @@ static inline int tx(const uint8_t *buf, uint8_t len)
   return len;
 }
 
-static inline int rx_timeout(uint8_t *buf, unsigned timeout)
+static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
 {
   int n_rx;
   uint8_t len;
 
-  n_rx = sp_blocking_read(port, &len, 1, timeout);
+  n_rx = sp_blocking_read(port, &len, 1, initial_timeout);
   ensure_or_ret(-1, n_rx == 1, "Did not receive packet header");
 
   fprintf(stderr, "rx [%02x]", len);
@@ -207,12 +207,13 @@ static inline int rx_timeout(uint8_t *buf, unsigned timeout)
 }
 
 static uint8_t rx_buf[256];
-static inline int rx() { return rx_timeout(rx_buf, 50); }
+static inline int rx() { return rx_timeout(rx_buf, 10); }
 
 static void *serial_loop_fn(void *_unused)
 {
   uint8_t buf[256];
   while (port != NULL) {
+    // XXX: This might be better implemented with poll()/semaphores/..., but anyway
     int len = rx_timeout(buf, 50);
     if (len != -1) {
       uint8_t *buf_dup = malloc(len + 1);
@@ -325,38 +326,48 @@ static void start_list_refresh_timer_if_unconnected()
 
 static void conn()
 {
-#define msgbox_clear_sel_and_continue() do { \
-  close_port(); \
-  error_and_continue(); \
-  uiComboboxSetSelected(cbox_serial_port, port_names_n > 0 ? 0 : -1); \
-  update_cbox_disp(); \
-  return; \
-} while (0)
-
 #define ensure_or_reject(_cond, ...) \
-  ensure_or_act(_cond, msgbox_clear_sel_and_continue();, __VA_ARGS__)
+  ensure_or_act(_cond, continue, __VA_ARGS__)
 
   int sel = uiComboboxSelected(cbox_serial_port);
   if (sel < 0 || sel >= port_names_n) return;
-  if (!open_port(port_names[sel], 921600)) msgbox_clear_sel_and_continue();
+  if (!open_port(port_names[sel], 921600)) {
+    close_port();
+    error_and_continue();
+    return;
+  }
 
-  // Try to request first packet of data
-  if (tx((uint8_t []){0xAA}, 1) < 0) msgbox_clear_sel_and_continue();
-  int rx_len = rx();
-  if (rx_len < 0) msgbox_clear_sel_and_continue();
+  bool successful = false;
+  for (int att = 0; att < 3; att++) {
+    if (att > 0) {
+      fprintf(stderr, "att = %d\n", att);
+      usleep(3000 + 3000 * att);  // Reset device reception state
+    }
+    // Try to request first packet of data
+    if (tx((uint8_t []){0xAA}, 1) < 0) continue;
+    int rx_len = rx();
+    if (rx_len < 0) continue;
 
-  ensure_or_reject(rx_len >= 11 &&
-    memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
-  uint8_t revision = rx_buf[10];
-  ensure_or_reject(revision == 0x20, "Invalid device revision %u", (unsigned)revision);
+    ensure_or_reject(rx_len >= 11 &&
+      memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
+    uint8_t revision = rx_buf[10];
+    ensure_or_reject(revision == 0x20, "Invalid device revision %u", (unsigned)revision);
 
-  ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
-  parse_readings(rx_buf + 11);
+    ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
+    parse_readings(rx_buf + 11);
 
-  ensure_or_reject(
-    pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,
-    "Cannot create thread, check system resource usage");
+    ensure_or_reject(
+      pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,
+      "Cannot create thread, check system resource usage");
 
+    successful = true;
+    break;
+  }
+
+  if (!successful) {
+    close_port();
+    error_and_continue();
+  }
   update_cbox_disp();
 }
 
@@ -460,6 +471,7 @@ int main()
       };
       area_readings_c_indicators = uiNewArea(&ah);
       uiBoxAppend(parent, uiControl(area_readings_c_indicators), true);
+      uiControlDisable(uiControl(area_readings_c_indicators));
     }
 
     clear_readings_disp();

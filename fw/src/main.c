@@ -737,11 +737,13 @@ static uint8_t rx_len = 0;
 static uint8_t rx_buf[256];
 static uint8_t rx_ptr = 0;
 
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 static void serial_rx_process_byte(uint8_t c)
 {
-  static uint32_t last_timestamp = (uint32_t)-100;
+  static uint32_t last_timestamp = (uint32_t)-3;
   uint32_t t = HAL_GetTick();
-  if (t - last_timestamp >= 100) {
+  if (t - last_timestamp >= 3) {
     // Reset
     rx_len = 0;
   }
@@ -780,6 +782,7 @@ static void serial_rx_process_byte(uint8_t c)
     }
   }
 }
+#pragma GCC pop_options
 
 void tx_readings_if_connected()
 {
