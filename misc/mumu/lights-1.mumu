@@ -1,12 +1,10 @@
-  mov %15, =1
-  breq %16, %15, Lf
-  mov %16, %15
+  breq %16, =1, Lf
+  mov %16, =1
   call If
 
 L:  # Loop
   add %14, =1
-  mov %15, =2
-  brne %14, %15, Ff
+  brne %14, =2, Ff
   mov %14, =0
 
   mov %8, =64
@@ -18,15 +16,13 @@ F:  # Finish
   sc =0
 
 I:  # Initialise
-  mov %8, =64
   # Fill 24 lights with 0x66ccff
   mov %9, =0
-  mov %10, =24
   mov %11, =0xccfF
   add %11, =0x660000
 A:
-  add %12, %8, %9
+  add %12, %9, =64
   st %11, %12
   add %9, =1
-  brlt %9, %10, Ab
+  brlt %9, =24, Ab
   ret
