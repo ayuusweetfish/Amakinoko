@@ -384,8 +384,13 @@ uint32_t assemble(
         } else if (n_operands == 2 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == IMMEDIATE) {
-          ensure_imm_range(1, 16);
-          emit_bh(0x30 + (mnemonic - MN_MOV), operands[0].n, operands[1].n);
+          ensure_imm_range(1, 24);
+          if ((operands[1].n & 0xFFFF) == 0) {
+            emit_bh(0x40 + (mnemonic - MN_MOV), operands[0].n, operands[1].n >> 16);
+          } else {
+            ensure_imm_range(1, 16);
+            emit_bh(0x30 + (mnemonic - MN_MOV), operands[0].n, operands[1].n);
+          }
         } else if (n_operands == 2 &&
             operands[0].ty == REGISTER &&
             (operands[1].ty == LABEL_B || operands[1].ty == LABEL_F)) {
@@ -402,6 +407,10 @@ uint32_t assemble(
             operands[2].ty == IMMEDIATE) {
           ensure_imm_range(2, 8);
           emit(0x70 + (mnemonic - MN_LD), operands[0].n, operands[1].n, operands[2].n);
+        } else if (n_operands == 2 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER) {
+          emit(0x70 + (mnemonic - MN_LD), operands[0].n, operands[1].n, 0);
         } else {
           report_error(instr_ln, "Invalid operands");
         }

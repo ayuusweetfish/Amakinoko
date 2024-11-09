@@ -1,0 +1,13 @@
+  mov %8, =64
+  # Fill 24 lights with 0x66ccff
+  mov %9, =0
+  mov %10, =24
+  mov %11, =52479
+  add %11, =6684672
+A:
+  add %12, %8, %9
+  st %11, %12
+  add %9, =1
+  brlt %9, %10, Ab
+
+  sc =0

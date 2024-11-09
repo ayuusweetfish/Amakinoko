@@ -1,9 +1,9 @@
 #pragma once
 
 #include <stdint.h>
-
-#define MUMU_ROM_SIZE 1024
-#define MUMU_RAM_SIZE 512
+#if MUMU_DEBUG
+#include <stdio.h>
+#endif
 
 typedef struct {
   const uint32_t *c;
@@ -24,7 +24,9 @@ void mumu_run(mumu_vm_t *restrict m)
   uint32_t pc = m->pc;
   while (1) {
     uint32_t instr = m->c[(pc++) & (MUMU_ROM_SIZE - 1)];
-    // printf("%08x | %08x %08x %08x %08x\n", instr, RAM(0), RAM(1), RAM(2), RAM(3));
+  #if MUMU_DEBUG
+    printf("%08x | %08x %08x %08x %08x\n", instr, RAM(0), RAM(1), RAM(2), RAM(3));
+  #endif
     uint8_t opcode = instr >> 24;
     uint8_t ty = opcode >> 4;
     switch (ty) {

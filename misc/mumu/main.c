@@ -1,6 +1,9 @@
+#define MUMU_ROM_SIZE 1024
+#define MUMU_RAM_SIZE 512
+#include "mumu.h"
+
 #include <stdio.h>
 #include <time.h>
-#include "mumu.h"
 
 int main()
 {
