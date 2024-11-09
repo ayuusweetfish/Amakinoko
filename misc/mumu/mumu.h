@@ -71,9 +71,10 @@ void mumu_run(mumu_vm_t *restrict m)
       break;
     }
 
-    case 0x8: case 0x9: case 0xA: {
+    case 0x8: case 0x9: case 0xA: case 0xB: {
       uint32_t opnd_1 = RAM((instr >> 16) & 0xFF);
-      uint32_t opnd_2 = RAM((instr >>  8) & 0xFF);
+      uint8_t b = (instr >> 8) & 0xFF;
+      uint32_t opnd_2 = (ty == 0x9 ? (uint32_t)b : RAM(b));
       uint8_t c = (instr >> 0) & 0xFF;
       uint8_t op = opcode & 0xF;
       uint8_t result = (
@@ -91,15 +92,15 @@ void mumu_run(mumu_vm_t *restrict m)
                     0
       );
       if (result) {
-        pc = (ty == 0x8 ? pc + (int8_t)c :
-              ty == 0x9 ? pc + RAM(c) :
+        pc = (ty <= 0x9 ? pc + (int8_t)c :
+              ty == 0xA ? pc + RAM(c) :
                           RAM(c));
       }
       break;
     }
 
-    case 0xB: {
-      if (opcode == 0xB0) {
+    case 0xF: {
+      if (opcode == 0xF0) {
         pc = (instr >> 0) & 0xFFFFFF;
       }
       break;
@@ -115,22 +116,22 @@ void mumu_run(mumu_vm_t *restrict m)
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(b + i);
         break;
       case 0xC1:  // call <Imm24>
-        RAM(--sp) = pc + 1;
+        RAM(--sp) = pc;
         pc = (instr >> 0) & 0xFFFFFF;
         break;
       // 0xC2, 0xC3, 0xC4 unused and untested
       case 0xC2:  // call <A> <B> <Imm8>
-        RAM(--sp) = pc + 1;
+        RAM(--sp) = pc;
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(b + i);
         pc += (int8_t)i;
         break;
       case 0xC3:  // callf <A> <Imm16>
-        RAM(--sp) = pc + 1;
+        RAM(--sp) = pc;
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(i);
         pc += (int16_t)((instr >> 0) & 0xFFFF);
         break;
       case 0xC4:  // calla <A> <B> <C>
-        RAM(--sp) = pc + 1;
+        RAM(--sp) = pc;
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(i);
         pc = RAM(i);
         break;

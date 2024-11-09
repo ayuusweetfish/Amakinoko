@@ -424,12 +424,12 @@ uint32_t assemble(
             (operands[0].ty == LABEL_B || operands[0].ty == LABEL_F)) {
           uint16_t offset = 0;
           process_label_offset(operands[0], operands_pos[0], false, &offset);
-          emit_24(0xB0, offset);
+          emit_24(0xF0, offset);
         } else if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
             operands[2].ty == REGISTER) {
-          emit(0x90 + (mnemonic - MN_BR), operands[0].n, operands[1].n, operands[2].n);
+          emit(0xA0 + (mnemonic - MN_BR), operands[0].n, operands[1].n, operands[2].n);
         } else if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
@@ -437,17 +437,25 @@ uint32_t assemble(
           uint8_t offset = 0;
           process_label_offset(operands[2], operands_pos[2], true, &offset);
           emit(0x80 + (mnemonic - MN_BR), operands[0].n, operands[1].n, offset);
+        } else if (n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == IMMEDIATE &&
+            (operands[2].ty == LABEL_B || operands[2].ty == LABEL_F)) {
+          ensure_imm_range(1, 8);
+          uint8_t offset = 0;
+          process_label_offset(operands[2], operands_pos[2], true, &offset);
+          emit(0x90 + (mnemonic - MN_BR), operands[0].n, operands[1].n, offset);
         } else {
           report_error(instr_ln, "Invalid operands");
         }
       } else if (mnemonic >= MN_BA && mnemonic < MN_BA_END) {
         if (mnemonic == MN_BA + MN_B_AL && n_operands == 1 && operands[0].ty == REGISTER) {
-          emit(0xA0, operands[0].n, operands[0].n, operands[0].n);
+          emit(0xB0, operands[0].n, operands[0].n, operands[0].n);
         } else if (n_operands == 3 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER &&
             operands[2].ty == REGISTER) {
-          emit(0xA0 + (mnemonic - MN_BA), operands[0].n, operands[1].n, operands[2].n);
+          emit(0xB0 + (mnemonic - MN_BA), operands[0].n, operands[1].n, operands[2].n);
         } else {
           report_error(instr_ln, "Invalid operands");
         }

@@ -22,8 +22,9 @@ ldc   <A> <B> <Imm8>  A := ROM[B + Imm8]
 ldcr  <A> <B> <Imm8>  A := ROM[PC + B + Imm8]
 
 Control flow
-# opcode: 8x - br, 9x - brr, Ax - ba
+# opcode: 8x - br, 9x - bri, Ax - brr, Bx - ba, Fx - baf
 br<cond>  <A> <B> <Imm8>  PC := PC + Imm8
+bri<cond> <A> <Imm8> <Imm8>
 brr<cond> <A> <B> <C>     PC := PC + C
 ba<cond>  <A> <B> <C>     PC := C
 - <cond>: al/eq/ne/gt/lt/ge/le/sgt/slt/sge/sle
