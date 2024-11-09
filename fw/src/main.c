@@ -12,6 +12,14 @@
 
 #define REV 2
 
+extern uint32_t _sidata, _sdata, _edata;
+#define FLASH_START_ADDR    0x08000000
+#define FW_END_ADDR         ((uint32_t)&_sidata + ((uint32_t)&_edata - (uint32_t)&_sdata))
+#define STORAGE_START_ADDR  ((FW_END_ADDR + FLASH_PAGE_SIZE - 1) & ~(FLASH_PAGE_SIZE - 1))
+#define STORAGE_SIZE        4096
+#define FLASH_END_ADDR      (FLASH_START_ADDR + (32 * 1024))
+_Static_assert(STORAGE_SIZE % FLASH_PAGE_SIZE == 0);
+
 // #define RELEASE
 #ifndef RELEASE
 #define _release_inline
@@ -83,6 +91,34 @@ static uint8_t rx_byte;
 
 static void run();
 static void tx_readings_if_connected();
+
+static void storage_erase()
+{
+  HAL_FLASH_Unlock();
+  uint32_t page_err;
+  HAL_FLASHEx_Erase(&(FLASH_EraseInitTypeDef){
+    .TypeErase = FLASH_TYPEERASE_PAGES,
+    .Banks = FLASH_BANK_1,
+    .Page = (STORAGE_START_ADDR - FLASH_START_ADDR) / FLASH_PAGE_SIZE,
+    .NbPages = STORAGE_SIZE / FLASH_PAGE_SIZE,
+  }, &page_err);
+  HAL_FLASH_Lock();
+  swv_printf("empty cell [0]: %08lx\n", *(uint32_t *)STORAGE_START_ADDR);
+}
+
+static void storage_write()
+{
+  HAL_FLASH_Unlock();
+  // TODO
+  uint64_t data[32] = {0x1020304aaa55aa55LL};
+  // HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, STORAGE_START_ADDR, (uint32_t)&data[0]);
+  // -> FASTERR, PGSERR, PGAERR
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, STORAGE_START_ADDR, 0x1020304aaa55aa55LL);
+  HAL_FLASH_Lock();
+  // Little-endian
+  swv_printf("empty cell [0]: %08lx\n", *(uint32_t *)STORAGE_START_ADDR);
+  swv_printf("empty cell [1]: %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 4));
+}
 
 // Pull a set of pins to a given level and set them as input
 static inline void pull_electrodes_port(GPIO_TypeDef *port, uint32_t pins, bool level)
@@ -437,6 +473,15 @@ int main()
     .Pull = GPIO_PULLUP,
     .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
   });
+
+  // Cannot be a static assertion, since this would require a link-time check
+  if (STORAGE_START_ADDR + STORAGE_SIZE > FLASH_END_ADDR) {
+    swv_printf("Insufficient storage!\n");
+  }
+  swv_printf("data end = 0x%08lx, storage start = 0x%08lx, page = %u\n",
+    FW_END_ADDR, STORAGE_START_ADDR, FLASH_PAGE_SIZE);
+  storage_erase();
+  storage_write();
 
   bool check_device_ready(uint8_t addr, const char *name)
   {
