@@ -33,12 +33,12 @@ Stack & subroutines
 # opcode: Cx
 push  <A> <B>         SP := SP - B; store A registers starting from B
 pop   <A> <B>
-call  <Imm24>         push PC; baf Imm24
-# call  <A> <B> <Imm8>  push PC; push A B; br Imm8
-# callf <A> <Imm16>     push PC; push =0 A; br Imm16
-# calla <A> <B> <C>     push PC; push =0 A; ba C
+call  <Imm24>         push PC+1; baf Imm24
+# call  <A> <B> <Imm8>  push PC+1; push A B; br Imm8
+# callf <A> <Imm16>     push PC+1; push =0 A; br Imm16
+# calla <A> <B> <C>     push PC+1; push =0 A; ba C
 ret   <A> <B>         pop A B; pop PC
 
 System
 # opcode: 0x
-sc  <Imm24>
+sc  <Imm24>   System call

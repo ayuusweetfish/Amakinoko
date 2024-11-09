@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdint.h>
-#if MUMU_DEBUG
+#ifdef MUMU_DEBUG
 #include <stdio.h>
 #endif
 
@@ -24,8 +24,8 @@ void mumu_run(mumu_vm_t *restrict m)
   uint32_t pc = m->pc;
   while (1) {
     uint32_t instr = m->c[(pc++) & (MUMU_ROM_SIZE - 1)];
-  #if MUMU_DEBUG
-    printf("%08x | %08x %08x %08x %08x\n", instr, RAM(0), RAM(1), RAM(2), RAM(3));
+  #ifdef MUMU_DEBUG
+    printf("%08x | %08x %08x %08x %08x\n", instr, RAM(MUMU_DEBUG + 0), RAM(MUMU_DEBUG + 1), RAM(MUMU_DEBUG + 2), RAM(MUMU_DEBUG + 3));
   #endif
     uint8_t opcode = instr >> 24;
     uint8_t ty = opcode >> 4;
@@ -115,22 +115,22 @@ void mumu_run(mumu_vm_t *restrict m)
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(b + i);
         break;
       case 0xC1:  // call <Imm24>
-        RAM(--sp) = pc;
+        RAM(--sp) = pc + 1;
         pc = (instr >> 0) & 0xFFFFFF;
         break;
       // 0xC2, 0xC3, 0xC4 unused and untested
       case 0xC2:  // call <A> <B> <Imm8>
-        RAM(--sp) = pc;
+        RAM(--sp) = pc + 1;
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(b + i);
         pc += (int8_t)i;
         break;
       case 0xC3:  // callf <A> <Imm16>
-        RAM(--sp) = pc;
+        RAM(--sp) = pc + 1;
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(i);
         pc += (int16_t)((instr >> 0) & 0xFFFF);
         break;
       case 0xC4:  // calla <A> <B> <C>
-        RAM(--sp) = pc;
+        RAM(--sp) = pc + 1;
         sp -= a; for (uint8_t i = a - 1; i != (uint8_t)-1; i--) RAM(sp + i) = RAM(i);
         pc = RAM(i);
         break;
