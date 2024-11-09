@@ -308,29 +308,34 @@ uint32_t assemble(
         break;
       }
 
+    #define read_num_literal(_n, _is_register) do { \
+      uint32_t _n1 = 0; \
+      bool is_register = (_is_register); \
+      bool hex = false; \
+      while (((c = my_getchar()) >= '0' && c <= '9') || \
+          (hex && (c = tolower(c)) >= 'a' && c <= 'f') || \
+          (!hex && _n1 == 0 && c == 'x')) { \
+        if (c == 'x') { hex = true; continue; } \
+        _n1 = _n1 * (hex ? 16 : 10) + (c >= '0' && c <= '9' ? c - '0' : c - 'a' + 10); \
+        uint32_t limit = (is_register ? ((uint32_t)1 << 8) : ((uint32_t)1 << 24)); \
+        if (_n1 >= limit) \
+          report_error_pos(start_pos, "%s out of range: expected <= %u", \
+            is_register ? "Register index" : "Immediate value", \
+            limit - 1); \
+      } \
+      *(_n) = _n1; \
+    } while (0)
+
       struct file_pos_t start_pos = { .line = line_num, .col = col_num };
       if (c == '%' || c == '=') {
         o.ty = (c == '%' ? REGISTER : IMMEDIATE);
-        uint32_t n = 0;
-        while ((c = my_getchar()) >= '0' && c <= '9') {
-          n = n * 10 + (c - '0');
-          uint32_t limit = (o.ty == REGISTER ? ((uint32_t)1 << 8) : ((uint32_t)1 << 24));
-          if (n >= limit)
-            report_error_pos(start_pos, "%s out of range: expected <= %u",
-              o.ty == REGISTER ? "Register index" : "Immediate value",
-              limit - 1);
-        }
-        o.n = n;
+        read_num_literal(&o.n, o.ty == REGISTER);
         if (c == '-' && o.ty == REGISTER) {
           o.ty = REGISTER_RANGE;
           c = my_getchar();
           if (c != '%') report_error_here("Expected register index starting with %%");
           uint32_t n = 0;
-          while ((c = my_getchar()) >= '0' && c <= '9') {
-            n = n * 10 + (c - '0');
-            if (n >= ((uint32_t)1 << 8))
-              report_error_pos(start_pos, "Register index out of range: expected <= 255");
-          }
+          read_num_literal(&n, true);
           if (n < o.n)
             report_error_pos(start_pos, "Register range should go upward");
           o.n |= ((n - o.n + 1) << 8);
