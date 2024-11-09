@@ -92,32 +92,33 @@ static uint8_t rx_byte;
 static void run();
 static void tx_readings_if_connected();
 
-static void storage_erase()
+__attribute__ ((section(".RamFunc")))
+static void storage_write(uint32_t offs, const uint8_t data[256])
 {
-  HAL_FLASH_Unlock();
-  uint32_t page_err;
-  HAL_FLASHEx_Erase(&(FLASH_EraseInitTypeDef){
-    .TypeErase = FLASH_TYPEERASE_PAGES,
-    .Banks = FLASH_BANK_1,
-    .Page = (STORAGE_START_ADDR - FLASH_START_ADDR) / FLASH_PAGE_SIZE,
-    .NbPages = STORAGE_SIZE / FLASH_PAGE_SIZE,
-  }, &page_err);
-  HAL_FLASH_Lock();
-  swv_printf("empty cell [0]: %08lx\n", *(uint32_t *)STORAGE_START_ADDR);
-}
+  // Silently break if offset not of a multiple of fast-write burst length (32 double-words)
+  if (offs % (32 * 8) != 0) return;
+  // Silently break if data is not properly aligned
+  if ((uint32_t)&data[0] % 8 != 0) return;
 
-static void storage_write()
-{
   HAL_FLASH_Unlock();
-  // TODO
-  uint64_t data[32] = {0x1020304aaa55aa55LL};
-  // HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, STORAGE_START_ADDR, (uint32_t)&data[0]);
-  // -> FASTERR, PGSERR, PGAERR
-  HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, STORAGE_START_ADDR, 0x1020304aaa55aa55LL);
+
+  // Fast programming only works with the last erased page
+  // https://community.st.com/t5/stm32-mcus-embedded-software/stm32g0-and-flash-typeprogram-fast-fail/m-p/122457/highlight/true#M6251
+  // https://community.st.com/t5/stm32-mcus-products/stm32g0-flash-program-fast-on-non-last-erased-page/td-p/72284
+  if (offs % FLASH_PAGE_SIZE == 0) {
+    uint32_t page_err;
+    HAL_FLASHEx_Erase(&(FLASH_EraseInitTypeDef){
+      .TypeErase = FLASH_TYPEERASE_PAGES,
+      .Banks = FLASH_BANK_1,
+      .Page = (STORAGE_START_ADDR - FLASH_START_ADDR + offs) / FLASH_PAGE_SIZE,
+      .NbPages = 1,
+    }, &page_err);
+  }
+
+  __disable_irq();
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, STORAGE_START_ADDR + offs, (uint32_t)&data[0]);
+  __enable_irq();
   HAL_FLASH_Lock();
-  // Little-endian
-  swv_printf("empty cell [0]: %08lx\n", *(uint32_t *)STORAGE_START_ADDR);
-  swv_printf("empty cell [1]: %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 4));
 }
 
 // Pull a set of pins to a given level and set them as input
@@ -480,8 +481,16 @@ int main()
   }
   swv_printf("data end = 0x%08lx, storage start = 0x%08lx, page = %u\n",
     FW_END_ADDR, STORAGE_START_ADDR, FLASH_PAGE_SIZE);
-  storage_erase();
-  storage_write();
+if (0) {
+  __attribute__ ((aligned(8)))
+  static uint8_t data[256] = {0x4a, 0x30, 0x20, 0x10, 0x55, 0xaa, 0x55, 0xaa};
+  storage_write(0, data);
+  data[4]++; storage_write(256, data);
+  data[4]++; storage_write(2048, data);
+  swv_printf("- %08lx %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 0), *(uint32_t *)(STORAGE_START_ADDR + 4));
+  swv_printf("- %08lx %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 256), *(uint32_t *)(STORAGE_START_ADDR + 260));
+  swv_printf("- %08lx %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 2048), *(uint32_t *)(STORAGE_START_ADDR + 2052));
+}
 
   bool check_device_ready(uint8_t addr, const char *name)
   {
