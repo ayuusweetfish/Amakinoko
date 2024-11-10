@@ -190,10 +190,19 @@ static inline int tx(const uint8_t *buf, uint8_t len)
 static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
 {
   int n_rx;
-  uint8_t len;
+  uint32_t len = 0;
+  uint8_t len_byte;
 
-  n_rx = sp_blocking_read(port, &len, 1, initial_timeout);
+  n_rx = sp_blocking_read(port, &len_byte, 1, initial_timeout);
   ensure_or_ret(-1, n_rx == 1, "Did not receive packet header");
+  if (len_byte < 128) {
+    len = len_byte;
+  } else {
+    len = ((len_byte ^ 128) << 8);
+    n_rx = sp_blocking_read(port, &len_byte, 1, initial_timeout);
+    ensure_or_ret(-1, n_rx == 1, "Did not receive packet header");
+    len |= len_byte;
+  }
 
   fprintf(stderr, "rx [%02x]", len);
   if (len > 0) {
@@ -324,6 +333,11 @@ static void start_list_refresh_timer_if_unconnected()
   }
 }
 
+static uint32_t mumu_bin_len;
+static uint8_t mumu_bin[65536];
+static uint32_t mumu_src_len;
+static uint8_t mumu_src[65536];
+
 static void conn()
 {
 #define ensure_or_reject(_cond, ...) \
@@ -355,6 +369,16 @@ static void conn()
 
     ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
     parse_readings(rx_buf + 11);
+
+    rx_len = rx_timeout(mumu_bin, 10);
+    if (rx_len < 0) continue;
+    mumu_bin_len = rx_len;
+    printf("received %d bytes binary\n", rx_len);
+
+    rx_len = rx_timeout(mumu_src, 10);
+    if (rx_len < 0) continue;
+    mumu_src_len = rx_len;
+    printf("received %d bytes source\n", rx_len);
 
     ensure_or_reject(
       pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,

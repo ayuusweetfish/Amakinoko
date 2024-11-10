@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define MUMU_ROM_SIZE 1024
 #define MUMU_RAM_SIZE 512
@@ -19,6 +20,16 @@ extern uint32_t _sidata, _sdata, _edata;
 #define STORAGE_SIZE        4096
 #define FLASH_END_ADDR      (FLASH_START_ADDR + (32 * 1024))
 _Static_assert(STORAGE_SIZE % FLASH_PAGE_SIZE == 0);
+
+#define STORAGE_ROM_LEN_OFFS  (MUMU_ROM_SIZE + 0)
+#define STORAGE_SRC_LEN_OFFS  (MUMU_ROM_SIZE + 2)
+#define STORAGE_ROM_OFFS      (0)
+#define STORAGE_SRC_OFFS      (MUMU_ROM_SIZE + 4)
+#define STORAGE_ROM_LEN       ((uint16_t *)(STORAGE_START_ADDR + STORAGE_ROM_LEN_OFFS))
+#define STORAGE_SRC_LEN       ((uint16_t *)(STORAGE_START_ADDR + STORAGE_SRC_LEN_OFFS))
+#define STORAGE_ROM_START     ((void *)(STORAGE_START_ADDR + STORAGE_ROM_OFFS))
+#define STORAGE_SRC_START     ((void *)(STORAGE_START_ADDR + STORAGE_SRC_OFFS))
+#define STORAGE_SRC_MAX_LEN   (STORAGE_SIZE - STORAGE_SRC_OFFS)
 
 // #define RELEASE
 #ifndef RELEASE
@@ -483,13 +494,23 @@ int main()
     FW_END_ADDR, STORAGE_START_ADDR, FLASH_PAGE_SIZE);
 if (0) {
   __attribute__ ((aligned(8)))
-  static uint8_t data[256] = {0x4a, 0x30, 0x20, 0x10, 0x55, 0xaa, 0x55, 0xaa};
+  static uint8_t data[256];
+  memcpy(data, (const uint8_t []){0x4a, 0x30, 0x20, 0x10, 0x55, 0xaa, 0x55, 0xaa, 0x77}, 9);
   storage_write(0, data);
-  data[4]++; storage_write(256, data);
-  data[4]++; storage_write(2048, data);
-  swv_printf("- %08lx %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 0), *(uint32_t *)(STORAGE_START_ADDR + 4));
-  swv_printf("- %08lx %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 256), *(uint32_t *)(STORAGE_START_ADDR + 260));
-  swv_printf("- %08lx %08lx\n", *(uint32_t *)(STORAGE_START_ADDR + 2048), *(uint32_t *)(STORAGE_START_ADDR + 2052));
+  memset(data, 0, 256);
+  storage_write(256, data);
+  storage_write(512, data);
+  storage_write(768, data);
+  data[0] = 0x09; data[1] = 0x00; // 9 bytes
+  data[2] = 0xa4; data[3] = 0x06; // 1700 bytes
+  for (int i = 0; i < 10; i++)
+    memcpy(data + 4 + i * 8, (const uint8_t []){0xaa, 0xbb, 0xcc, 0xdd, 0x12, 0x34, 0x56, 0x78}, 8);
+  storage_write(1024, data);
+  data[4] = 0x01; storage_write(1280, data);
+  data[4] = 0x02; storage_write(1536, data);
+  data[4] = 0x03; storage_write(1792, data);
+  data[4] = 0x04; storage_write(2048, data);
+  data[4] = 0x05; storage_write(2304, data);
 }
 
   bool check_device_ready(uint8_t addr, const char *name)
@@ -761,6 +782,12 @@ static uint8_t rx_len = 0;
 static uint8_t rx_buf[256];
 static uint8_t rx_ptr = 0;
 
+static uint8_t encode_len(uint8_t *a, uint16_t x)
+{
+  if (x < 128) { a[0] = x; return 1; }
+  else { a[0] = 128 | (x / 256); a[1] = x % 256; return 2; }
+}
+
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static void serial_rx_process_byte(uint8_t c)
@@ -790,11 +817,22 @@ static void serial_rx_process_byte(uint8_t c)
 
       if (rx_len == 1 && rx_buf[0] == 0xAA) {
         delay_us(1000);
+        // Transmit first readings
         uint8_t readings_buf[TX_READINGS_LEN];
         fill_tx_readings(readings_buf);
         HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
         HAL_UART_Transmit(&uart2, (uint8_t *)"\x55" "Amakinoko" "\x20", 11, HAL_MAX_DELAY);
         HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
+        // Transmit program binary and source text
+        uint8_t l[2];
+        uint16_t rom_size = *STORAGE_ROM_LEN;
+        uint16_t src_size = *STORAGE_SRC_LEN;
+        if (rom_size > MUMU_ROM_SIZE || src_size > STORAGE_SRC_MAX_LEN)
+          rom_size = src_size = 0;
+        HAL_UART_Transmit(&uart2, l, encode_len(l, rom_size), HAL_MAX_DELAY);
+        HAL_UART_Transmit(&uart2, STORAGE_ROM_START, rom_size, HAL_MAX_DELAY);
+        HAL_UART_Transmit(&uart2, l, encode_len(l, src_size), HAL_MAX_DELAY);
+        HAL_UART_Transmit(&uart2, STORAGE_SRC_START, src_size, HAL_MAX_DELAY);
       }
 
       else if (rx_len == 1 && rx_buf[0] == 0xBB) {
