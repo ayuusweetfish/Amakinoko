@@ -40,6 +40,10 @@ static uiArea *area_readings_c_indicators;
 
 static uint8_t readings_touch[4] = { 0 };
 
+static uiBox *box_program;
+static uiMultilineEntry *text_source;
+static uiButton *btn_check, *btn_upload;
+
 static void clear_readings_disp()
 {
   uiLabelSetText(lbl_readings_t, "温度：— ˚C");
@@ -48,6 +52,12 @@ static void clear_readings_disp()
   uiLabelSetText(lbl_readings_i, "光照：— lx");
   for (int i = 0; i < 4; i++) readings_touch[i] = 0;
   uiAreaQueueRedrawAll(area_readings_c_indicators);
+  if (0) {
+    uiControlDisable(uiControl(box_program));
+    uiMultilineEntrySetText(text_source, "");
+    uiMultilineEntrySetReadOnly(text_source, true);
+  }
+  uiControlDisable(uiControl(btn_upload));
 }
 
 #define TX_READINGS_LEN 14
@@ -209,8 +219,8 @@ static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
     n_rx = sp_blocking_read(port, buf, len, 50);
     ensure_or_ret(-1, n_rx == len, "Did not receive packet payload");
     for (int i = 0; i < n_rx; i++) fprintf(stderr, " %02x", (int)buf[i]);
-    fprintf(stderr, "\n");
   }
+  fprintf(stderr, "\n");
 
   return len;
 }
@@ -379,6 +389,8 @@ static void conn()
     if (rx_len < 0) continue;
     mumu_src_len = rx_len;
     printf("received %d bytes source\n", rx_len);
+    mumu_src[mumu_src_len] = '\0';
+    uiMultilineEntrySetText(text_source, (const char *)mumu_src);
 
     ensure_or_reject(
       pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,
@@ -391,6 +403,12 @@ static void conn()
   if (!successful) {
     close_port();
     error_and_continue();
+  } else {
+    if (0) {
+      uiControlEnable(uiControl(box_program));
+      uiMultilineEntrySetReadOnly(text_source, false);
+    }
+    uiControlEnable(uiControl(btn_upload));
   }
   update_cbox_disp();
 }
@@ -403,6 +421,32 @@ static void btn_serial_port_conn_clicked(uiButton *btn, void *_unused)
     close_port();
     update_cbox_disp();
   }
+}
+
+static void btn_check_clicked(uiButton *btn, void *_unused)
+{
+}
+
+static void btn_upload_clicked(uiButton *btn, void *_unused)
+{
+  int rom_len = 0, src_len = 0;
+  bool error = false;
+
+  char *src = uiMultilineEntryText(text_source);
+  src_len = strlen(src);
+
+  const char *rom = "";
+
+  if (tx((uint8_t []){0xFA,
+      rom_len / 256, rom_len % 256,
+      src_len / 256, src_len % 256,
+    }, 5) < 0) { error = true; goto _fin; }
+  if (tx((uint8_t *)rom, rom_len) < 0) { error = true; goto _fin; }
+  if (tx((uint8_t *)src, src_len) < 0) { error = true; goto _fin; }
+
+_fin:
+  uiFreeText(src);
+  if (error) error_and_continue();
 }
 
 static int window_on_closing(uiWindow *w, void *_unused)
@@ -461,8 +505,8 @@ int main()
   }
 
   uiBox *box_readings = uiNewHorizontalBox();
-  uiBoxSetPadded(box_readings, 1);
-  uiBoxAppend(box_main, uiControl(box_readings), 0);
+  uiBoxSetPadded(box_readings, true);
+  uiBoxAppend(box_main, uiControl(box_readings), false);
   {
     uiBox *parent = box_readings;
 
@@ -497,9 +541,27 @@ int main()
       uiBoxAppend(parent, uiControl(area_readings_c_indicators), true);
       uiControlDisable(uiControl(area_readings_c_indicators));
     }
-
-    clear_readings_disp();
   }
+
+  box_program = uiNewVerticalBox();
+  uiBoxSetPadded(box_program, true);
+  uiBoxAppend(box_main, uiControl(box_program), true);
+  {
+    uiBox *parent = box_program;
+
+    text_source = uiNewMultilineEntry();
+    uiBoxAppend(parent, uiControl(text_source), true);
+
+    btn_check = uiNewButton("检查");
+    uiBoxAppend(parent, uiControl(btn_check), false);
+    uiButtonOnClicked(btn_check, btn_check_clicked, NULL);
+
+    btn_upload = uiNewButton("上传");
+    uiBoxAppend(parent, uiControl(btn_upload), false);
+    uiButtonOnClicked(btn_upload, btn_upload_clicked, NULL);
+  }
+
+  clear_readings_disp();
 
   // Run main loop
   uiWindowOnClosing(w, window_on_closing, NULL);
