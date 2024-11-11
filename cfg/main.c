@@ -133,7 +133,7 @@ static struct sp_port *port = NULL;
   ensure_or_act(r == SP_OK, { port = NULL; return false; }, __VA_ARGS__); \
 } while (0)
 
-static inline int tx(const uint8_t *buf, uint8_t len);
+static inline int tx(const uint8_t *buf, uint16_t len);
 
 static pthread_t serial_loop_thr;
 static void *serial_loop_fn(void *_unused);
@@ -175,11 +175,12 @@ static bool open_port(const char *name, int baud_rate)
   return true;
 }
 
-static inline int tx(const uint8_t *buf, uint8_t len)
+static inline int tx(const uint8_t *buf, uint16_t len)
 {
+  if (len > 256) return -1;
   int n_tx;
 
-  n_tx = sp_blocking_write(port, &len, 1, 10);
+  n_tx = sp_blocking_write(port, &(int){ len & 0xff }, 1, 10);
   ensure_or_ret(-1, n_tx == 1, "Cannot write to port");
 
   n_tx = sp_blocking_write(port, buf, len, 10);
@@ -416,6 +417,8 @@ static void conn()
     mumu_src_len = rx_len;
     printf("received %d bytes source\n", rx_len);
     mumu_src[mumu_src_len] = '\0';
+    for (int i = 0; i < mumu_src_len; i++)
+      if (mumu_src[i] < 32 || mumu_src[i] > 126) mumu_src[i] = '?';
     uiMultilineEntrySetText(text_source, (const char *)mumu_src);
 
     serial_loop_pause_req = serial_loop_pause_state = false;
@@ -460,7 +463,11 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
   char *src = uiMultilineEntryText(text_source);
   src_len = strlen(src);
 
-  const char *rom = "";
+  const char *rom = "1234";
+  rom_len = strlen(rom);
+
+  ensure_or_act(rom_len <= 0xffff && src_len <= 0xffff,
+    { error = true; goto _fin; }, "Size exceeds limit");
 
   thread_rx_pause(true);
   if (tx((uint8_t []){0xFA,
@@ -474,8 +481,16 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
   ensure_or_act(rx_len == 1 && rx_buf[0] == 0xFC,
     { error = true; goto _fin; }, "Size exceeds limit");
 
-  // if (tx((uint8_t *)rom, rom_len) < 0) { error = true; goto _fin; }
-  // if (tx((uint8_t *)src, src_len) < 0) { error = true; goto _fin; }
+  for (int i = 0; i < rom_len; i += 256) {
+    int n = (rom_len - i >= 256 ? 256 : rom_len - i);
+    if (tx((uint8_t *)rom + i, n) < 0) { error = true; goto _fin; }
+    usleep(30000);
+  }
+  for (int i = 0; i < src_len; i += 256) {
+    int n = (src_len - i >= 256 ? 256 : src_len - i);
+    if (tx((uint8_t *)src + i, n) < 0) { error = true; goto _fin; }
+    usleep(30000);
+  }
 
 _fin:
   thread_rx_pause(false);

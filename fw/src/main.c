@@ -121,7 +121,9 @@ static void storage_write(uint32_t offs, const uint8_t data[256])
   // Fast programming only works with the last erased page
   // https://community.st.com/t5/stm32-mcus-embedded-software/stm32g0-and-flash-typeprogram-fast-fail/m-p/122457/highlight/true#M6251
   // https://community.st.com/t5/stm32-mcus-products/stm32g0-flash-program-fast-on-non-last-erased-page/td-p/72284
-  if (offs % FLASH_PAGE_SIZE == 0) {
+  static uint32_t last_written_page = 0;
+  if (offs == 0 || offs / FLASH_PAGE_SIZE != last_written_page) {
+    last_written_page = offs / FLASH_PAGE_SIZE;
     uint32_t page_err;
     HAL_FLASHEx_Erase(&(FLASH_EraseInitTypeDef){
       .TypeErase = FLASH_TYPEERASE_PAGES,
@@ -886,16 +888,20 @@ static void queue_tx_flush()
 // For future revisions, this can be based on CH343's ACT# signal or possibly hardware flow control.
 static bool rx_connected = false;
 
-static uint8_t rx_len = 0;
+static uint16_t rx_len = 0;
 static uint8_t rx_buf[256];
-static uint8_t rx_ptr = 0;
+static uint16_t rx_ptr = 0;
 
 static uint8_t rx_flash = 0;  // 0 - inactive, 1 - ROM, 2 - source
 static uint16_t rx_rom_len, rx_src_len;
-static uint8_t flash_data[256];
+static uint32_t rx_flash_ptr;
+__attribute__ ((aligned(8))) static uint8_t flash_buf[256];
 
 #define RX_BYTE_TIMEOUT 3
 static uint32_t rx_last_timestamp = (uint32_t)-RX_BYTE_TIMEOUT;
+
+#define RX_FLASH_PACKET_TIMEOUT 50
+static uint32_t rx_flash_last_timestamp = (uint32_t)-RX_FLASH_PACKET_TIMEOUT;
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -909,13 +915,55 @@ static void serial_rx_process_byte(uint8_t c)
   rx_last_timestamp = t;
 
   if (rx_len == 0) {
-    if (c == 0) {
-      // Ignore empty packet
-    } else {
-      // Receive payload
-      rx_len = c;
-      rx_ptr = 0;
+    if (rx_flash != 0) {
+      if (t - rx_flash_last_timestamp >= RX_FLASH_PACKET_TIMEOUT) {
+        // Reset
+        rx_flash = 0;
+      } else {
+        rx_flash_last_timestamp = t;
+      }
     }
+
+    // Receive payload
+    rx_len = (c == 0 ? 256 : c);
+    rx_ptr = 0;
+
+  } else if (rx_flash != 0) {
+    if (rx_flash == 1) {
+      uint8_t p = rx_flash_ptr % 256;
+      flash_buf[p] = c;
+      if (++rx_flash_ptr == rx_rom_len || p == 255) {
+        for (p++; p != 0; p++) flash_buf[p] = 0xff;
+        uint32_t row_offs = ((rx_flash_ptr - 1) & ~0xff);
+        storage_write(STORAGE_ROM_OFFS + row_offs, flash_buf);
+        rx_flash = 2;
+        rx_flash_ptr = 0;
+      }
+    } else {  // rx_flash == 2
+      uint8_t p = rx_flash_ptr % 256;
+      flash_buf[p] = c;
+      if (++rx_flash_ptr == rx_src_len || p == 255) {
+        for (p++; p != 0; p++) flash_buf[p] = 0xff;
+        uint32_t row_offs = ((rx_flash_ptr - 1) & ~0xff);
+        // XXX: Too much duplication?
+        if (rx_flash_ptr == rx_src_len && row_offs == (STORAGE_ROM_LEN_OFFS & ~0xff)) {
+          *(uint16_t *)&flash_buf[STORAGE_ROM_LEN_OFFS % 256] = rx_rom_len;
+          *(uint16_t *)&flash_buf[STORAGE_SRC_LEN_OFFS % 256] = rx_src_len;
+        }
+        storage_write(STORAGE_SRC_OFFS + row_offs, flash_buf);
+        if (rx_flash_ptr == rx_src_len && row_offs != (STORAGE_ROM_LEN_OFFS & ~0xff)) {
+          // Write last row
+          memset(flash_buf, 0xff, 256);
+          *(uint16_t *)&flash_buf[STORAGE_ROM_LEN_OFFS % 256] = rx_rom_len;
+          *(uint16_t *)&flash_buf[STORAGE_SRC_LEN_OFFS % 256] = rx_src_len;
+          storage_write(STORAGE_ROM_LEN_OFFS & ~0xff, flash_buf);
+        }
+        rx_flash = 0;
+      }
+    }
+
+    if (++rx_ptr == rx_len) rx_len = 0;
+
   } else {
     rx_buf[rx_ptr++] = c;
     if (rx_ptr == rx_len) {
@@ -938,6 +986,8 @@ static void serial_rx_process_byte(uint8_t c)
           rx_flash = 0;
           queue_tx(QUEUE_TX_FLASH_START_ERR);
         } else {
+          rx_flash_ptr = 0;
+          rx_flash_last_timestamp = HAL_GetTick();
           queue_tx(QUEUE_TX_FLASH_START_OK);
         }
       }
