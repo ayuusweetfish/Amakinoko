@@ -7,6 +7,8 @@
 #include <string.h>
 #include <unistd.h> // usleep
 
+#include "crc32.h"
+
 static uiWindow *w;
 
 static int on_should_quit(void *_unused)
@@ -470,6 +472,11 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
     { error = true; goto _fin; }, "Size exceeds limit");
 
   thread_rx_pause(true);
+
+  int att = 0;
+
+_retry:
+  if (att != 0) fprintf(stderr, "att = %d\n", att);
   if (tx((uint8_t []){0xFA,
       rom_len / 256, rom_len % 256,
       src_len / 256, src_len % 256,
@@ -477,7 +484,7 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
 
   // Check code
   int rx_len = thread_rx();
-  if (rx_len < 0) { printf("!!!\n"); error = true; goto _fin; }
+  if (rx_len < 0) { error = true; goto _fin; }
   ensure_or_act(rx_len == 1 && rx_buf[0] == 0xFC,
     { error = true; goto _fin; }, "Size exceeds limit");
 
@@ -490,6 +497,29 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
     int n = (src_len - i >= 256 ? 256 : src_len - i);
     if (tx((uint8_t *)src + i, n) < 0) { error = true; goto _fin; }
     usleep(30000);
+  }
+
+  rx_len = thread_rx();
+  if (rx_len < 0) { error = true; goto _fin; }
+  ensure_or_act(rx_len == 5 && rx_buf[0] == 0xCC,
+    { error = true; goto _fin; }, "Cannot verify written data");
+  uint32_t crc_device =
+    ((uint32_t)rx_buf[1] << 24) |
+    ((uint32_t)rx_buf[2] << 16) |
+    ((uint32_t)rx_buf[3] <<  8) |
+    ((uint32_t)rx_buf[4] <<  0);
+
+  uint32_t crc_host = 0xffffffff;
+  for (int i = 0; i < rom_len; i++) crc_host = crc32_update(crc_host, rom[i]);
+  for (int i = 0; i < src_len; i++) crc_host = crc32_update(crc_host, src[i]);
+
+  if (crc_device != crc_host) {
+    if (++att < 3) {
+      goto _retry;
+    } else {
+      fprintf(stderr, "Device CRC = %08x, host CRC = %08x\n", (unsigned)crc_device, (unsigned)crc_host);
+      ensure_or_act(false, { error = true; goto _fin; }, "Data written is corrupted. Please contact distributor.");
+    }
   }
 
 _fin:

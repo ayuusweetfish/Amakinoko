@@ -800,6 +800,18 @@ if (0) {
 }
 #pragma GCC pop_options
 
+/*
+  0xAA - ask
+    0x55 - acknowledgement
+
+  0xBB - bye
+
+  0xFA - flash
+    0xFC - proceed
+    0xFE - error due to size limits
+    0xCC - checksum
+*/
+
 static uint8_t encode_len(uint8_t *a, uint16_t x)
 {
   if (x < 128) { a[0] = x; return 1; }
@@ -810,6 +822,7 @@ enum queue_tx_t {
   QUEUE_TX_HANDSHAKE,
   QUEUE_TX_FLASH_START_ERR,
   QUEUE_TX_FLASH_START_OK,
+  QUEUE_TX_FLASH_CRC,
 };
 static uint8_t queue_tx_n = 0;
 #define QUEUE_TX_CAPACITY 8
@@ -878,13 +891,33 @@ static void queue_tx_flush()
       HAL_UART_Transmit(&uart2, (uint8_t []){ 1, code }, 2, HAL_MAX_DELAY);
       break;
     }
+    case QUEUE_TX_FLASH_CRC: {
+      __HAL_RCC_CRC_CLK_ENABLE();
+      // Reset with polynomial 0x04C11DB7 and initial value 0xFFFFFFFF
+      CRC->CR |= CRC_CR_RESET;
+      uint16_t rom_size = *STORAGE_ROM_LEN;
+      uint16_t src_size = *STORAGE_SRC_LEN;
+      // Hardware 4-byte word access corresponds to MSB-first calculation
+      // Indeed, `CRC_Handle_8()` in `stm32g0xx_hal_crc.c` does it,
+      // which is more complexity than is needed.
+      for (uint16_t i = 0; i < rom_size; i++) *(uint8_t *)&CRC->DR = *(uint8_t *)(STORAGE_ROM_START + i);
+      for (uint16_t i = 0; i < src_size; i++) *(uint8_t *)&CRC->DR = *(uint8_t *)(STORAGE_SRC_START + i);
+      uint32_t crc = CRC->DR;
+      __HAL_RCC_CRC_CLK_DISABLE();
+      HAL_UART_Transmit(&uart2, (uint8_t []){
+        5,
+        0xCC,
+        (uint8_t)((crc >> 24) & 0xff),
+        (uint8_t)((crc >> 16) & 0xff),
+        (uint8_t)((crc >>  8) & 0xff),
+        (uint8_t)((crc >>  0) & 0xff),
+      }, 6, HAL_MAX_DELAY);
+    }
     default: break;
   }
 }
 
 // For Rev. 2, this is set with any well-formatted packet and cleared with a goodbyte packet (0xBB).
-// Turned off during packet reception; stays off after a broken packet, but
-// transmission restarts once re-initialisation happens.
 // For future revisions, this can be based on CH343's ACT# signal or possibly hardware flow control.
 static bool rx_connected = false;
 
@@ -959,6 +992,7 @@ static void serial_rx_process_byte(uint8_t c)
           storage_write(STORAGE_ROM_LEN_OFFS & ~0xff, flash_buf);
         }
         rx_flash = 0;
+        queue_tx(QUEUE_TX_FLASH_CRC);
       }
     }
 
