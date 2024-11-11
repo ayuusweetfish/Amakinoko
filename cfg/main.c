@@ -26,6 +26,9 @@ static char global_err_msg[256];
 #define ensure_or_abort(_cond, ...) ensure_or_act(_cond, error_and_abort(), __VA_ARGS__)
 #define ensure_or_ret(_val, _cond, ...) ensure_or_act(_cond, return _val, __VA_ARGS__)
 
+static inline void clear_status_bar();
+static inline void status_bar(const char *s);
+
 static void error_and_abort()
 {
   uiMsgBox(w, "", global_err_msg);
@@ -34,6 +37,13 @@ static void error_and_abort()
 static void error_and_continue()
 {
   uiMsgBox(w, "", global_err_msg);
+  clear_status_bar();
+  if (0) {
+    char *s;
+    asprintf(&s, "× %s", global_err_msg);
+    status_bar(s);
+    free(s);
+  }
 }
 
 static uiLabel
@@ -45,6 +55,16 @@ static uint8_t readings_touch[4] = { 0 };
 static uiBox *box_program;
 static uiMultilineEntry *text_source;
 static uiButton *btn_check, *btn_upload;
+static uiLabel *lbl_status_bar;
+
+static inline void clear_status_bar()
+{
+  uiLabelSetText(lbl_status_bar, "");
+}
+static inline void status_bar(const char *s)
+{
+  uiLabelSetText(lbl_status_bar, s);
+}
 
 static void clear_readings_disp()
 {
@@ -147,6 +167,7 @@ static bool close_port()
   if (port != NULL) {
     tx((uint8_t []){ 0xBB }, 1);  // Ignore result, close anyway
     clear_readings_disp();
+    clear_status_bar();
     struct sp_port *saved_port = port;
     port = NULL;
     start_list_refresh_timer_if_unconnected();
@@ -439,6 +460,7 @@ _retry: { }
     error_and_continue();
   } else {
     uiControlEnable(uiControl(btn_upload));
+    status_bar("✓ 已连接");
   }
   update_cbox_disp();
 }
@@ -521,6 +543,8 @@ _retry:
       ensure_or_act(false, { error = true; goto _fin; }, "Data written is corrupted. Please contact distributor.");
     }
   }
+
+  status_bar("✓ 上传成功");
 
 _fin:
   thread_rx_pause(false);
@@ -638,6 +662,9 @@ int main()
     btn_upload = uiNewButton("上传");
     uiBoxAppend(parent, uiControl(btn_upload), false);
     uiButtonOnClicked(btn_upload, btn_upload_clicked, NULL);
+
+    lbl_status_bar = uiNewLabel("");
+    uiBoxAppend(parent, uiControl(lbl_status_bar), false);
   }
 
   clear_readings_disp();
