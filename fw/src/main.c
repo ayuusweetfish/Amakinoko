@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -29,6 +30,7 @@ _Static_assert(STORAGE_SIZE % FLASH_PAGE_SIZE == 0);
 #define STORAGE_SRC_LEN       ((uint16_t *)(STORAGE_START_ADDR + STORAGE_SRC_LEN_OFFS))
 #define STORAGE_ROM_START     ((void *)(STORAGE_START_ADDR + STORAGE_ROM_OFFS))
 #define STORAGE_SRC_START     ((void *)(STORAGE_START_ADDR + STORAGE_SRC_OFFS))
+#define STORAGE_ROM_MAX_LEN   (MUMU_ROM_SIZE)
 #define STORAGE_SRC_MAX_LEN   (STORAGE_SIZE - 4 - STORAGE_SRC_OFFS)
 
 // #define RELEASE
@@ -101,6 +103,7 @@ static UART_HandleTypeDef uart2;
 static uint8_t rx_byte;
 
 static void run();
+static void queue_tx_flush();
 static void tx_readings_if_connected();
 
 __attribute__ ((section(".RamFunc")))
@@ -637,9 +640,7 @@ if (1) {
   uint32_t last_sensors_start = tick;
   uint32_t last_sensors_tx = tick - 1000;
   while (1) {
-    __disable_irq();
     run();
-    __enable_irq();
 
     uint32_t cur = HAL_GetTick();
     if (cur >= last_sensors_start + 20) {
@@ -658,8 +659,10 @@ if (1) {
         swv_printf("Reading invalid! Check connections\n");
       }
     }
-    while ((cur = HAL_GetTick()) - tick < 10)
+    while ((cur = HAL_GetTick()) - tick < 10) {
+      queue_tx_flush();
       HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+    }
     tick = cur;
   }
 }
@@ -732,6 +735,7 @@ if (0) {
   LED_OUT_PORT->BSRR = LED_OUT_PIN << 16; // Reset code, drive low
   delay_us(60); // Nominal length is 50 us, leave some tolerance
 
+  __disable_irq();
   TIM3->SR = ~TIM_SR_UIF;
   for (int i = 0; i < N; i++) {
     // G
@@ -765,10 +769,93 @@ if (0) {
     OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 2);
     OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 1);
   }
+  __enable_irq();
 
   LED_OUT_PORT->BSRR = LED_OUT_PIN; // Release line, write high, to avoid continuous current
 }
 #pragma GCC pop_options
+
+static uint8_t encode_len(uint8_t *a, uint16_t x)
+{
+  if (x < 128) { a[0] = x; return 1; }
+  else { a[0] = 128 | (x / 256); a[1] = x % 256; return 2; }
+}
+
+enum queue_tx_t {
+  QUEUE_TX_HANDSHAKE,
+  QUEUE_TX_FLASH_START_ERR,
+  QUEUE_TX_FLASH_START_OK,
+};
+static uint8_t queue_tx_n = 0;
+#define QUEUE_TX_CAPACITY 8
+static enum queue_tx_t queue_tx_q[QUEUE_TX_CAPACITY];
+static volatile atomic_flag queue_tx_lock_flag = ATOMIC_FLAG_INIT;
+
+// For deduplication
+static bool queue_tx_handshake_flag = false;
+
+static inline void queue_tx_lock()
+{
+  while (!atomic_flag_test_and_set(&queue_tx_lock_flag)) { }
+}
+
+static inline void queue_tx_unlock()
+{
+  atomic_flag_clear(&queue_tx_lock_flag);
+}
+
+static inline void queue_tx(enum queue_tx_t e)
+{
+  if (queue_tx_n >= QUEUE_TX_CAPACITY - 1) return;
+  queue_tx_lock();
+  queue_tx_q[queue_tx_n++] = e;
+  if (e == QUEUE_TX_HANDSHAKE) queue_tx_handshake_flag = true;
+  queue_tx_unlock();
+}
+
+static void queue_tx_flush()
+{
+  if (queue_tx_n == 0) return;
+
+  queue_tx_lock();
+  int n = queue_tx_n;
+  enum queue_tx_t q[QUEUE_TX_CAPACITY];
+  memcpy(q, queue_tx_q, sizeof(enum queue_tx_t) * n);
+  queue_tx_n = 0;
+  queue_tx_unlock();
+
+  for (int i = 0; i < n; i++) switch (q[i]) {
+    case QUEUE_TX_HANDSHAKE: {
+      if (!queue_tx_handshake_flag) break;
+      delay_us(1000);
+      // Transmit first readings
+      uint8_t readings_buf[TX_READINGS_LEN];
+      fill_tx_readings(readings_buf);
+      HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, (uint8_t *)"\x55" "Amakinoko" "\x20", 11, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
+      // Transmit program binary and source text
+      uint8_t l[2];
+      uint16_t rom_size = *STORAGE_ROM_LEN;
+      uint16_t src_size = *STORAGE_SRC_LEN;
+      if (rom_size > MUMU_ROM_SIZE || src_size > STORAGE_SRC_MAX_LEN)
+        rom_size = src_size = 0;
+      HAL_UART_Transmit(&uart2, l, encode_len(l, rom_size), HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, STORAGE_ROM_START, rom_size, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, l, encode_len(l, src_size), HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, STORAGE_SRC_START, src_size, HAL_MAX_DELAY);
+      queue_tx_handshake_flag = false;
+      break;
+    }
+    case QUEUE_TX_FLASH_START_ERR:
+    case QUEUE_TX_FLASH_START_OK: {
+      uint8_t code = (q[i] == QUEUE_TX_FLASH_START_OK ? 0xFC : 0xFE);
+      HAL_UART_Transmit(&uart2, (uint8_t []){ 1, code }, 2, HAL_MAX_DELAY);
+      break;
+    }
+    default: break;
+  }
+}
 
 // For Rev. 2, this is set with any well-formatted packet and cleared with a goodbyte packet (0xBB).
 // Turned off during packet reception; stays off after a broken packet, but
@@ -780,27 +867,23 @@ static uint8_t rx_len = 0;
 static uint8_t rx_buf[256];
 static uint8_t rx_ptr = 0;
 
-static uint8_t encode_len(uint8_t *a, uint16_t x)
-{
-  if (x < 128) { a[0] = x; return 1; }
-  else { a[0] = 128 | (x / 256); a[1] = x % 256; return 2; }
-}
-
 static uint8_t rx_flash = 0;  // 0 - inactive, 1 - ROM, 2 - source
 static uint16_t rx_rom_len, rx_src_len;
 static uint8_t flash_data[256];
+
+#define RX_BYTE_TIMEOUT 3
+static uint32_t rx_last_timestamp = (uint32_t)-RX_BYTE_TIMEOUT;
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static void serial_rx_process_byte(uint8_t c)
 {
-  static uint32_t last_timestamp = (uint32_t)-3;
   uint32_t t = HAL_GetTick();
-  if (t - last_timestamp >= 3) {
+  if (t - rx_last_timestamp >= RX_BYTE_TIMEOUT) {
     // Reset
     rx_len = 0;
   }
-  last_timestamp = t;
+  rx_last_timestamp = t;
 
   if (rx_len == 0) {
     if (c == 0) {
@@ -809,7 +892,6 @@ static void serial_rx_process_byte(uint8_t c)
       // Receive payload
       rx_len = c;
       rx_ptr = 0;
-      rx_connected = false;
     }
   } else {
     rx_buf[rx_ptr++] = c;
@@ -818,27 +900,23 @@ static void serial_rx_process_byte(uint8_t c)
       rx_connected = true;
 
       if (rx_len == 1 && rx_buf[0] == 0xAA) {
-        delay_us(1000);
-        // Transmit first readings
-        uint8_t readings_buf[TX_READINGS_LEN];
-        fill_tx_readings(readings_buf);
-        HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
-        HAL_UART_Transmit(&uart2, (uint8_t *)"\x55" "Amakinoko" "\x20", 11, HAL_MAX_DELAY);
-        HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
-        // Transmit program binary and source text
-        uint8_t l[2];
-        uint16_t rom_size = *STORAGE_ROM_LEN;
-        uint16_t src_size = *STORAGE_SRC_LEN;
-        if (rom_size > MUMU_ROM_SIZE || src_size > STORAGE_SRC_MAX_LEN)
-          rom_size = src_size = 0;
-        HAL_UART_Transmit(&uart2, l, encode_len(l, rom_size), HAL_MAX_DELAY);
-        HAL_UART_Transmit(&uart2, STORAGE_ROM_START, rom_size, HAL_MAX_DELAY);
-        HAL_UART_Transmit(&uart2, l, encode_len(l, src_size), HAL_MAX_DELAY);
-        HAL_UART_Transmit(&uart2, STORAGE_SRC_START, src_size, HAL_MAX_DELAY);
+        queue_tx(QUEUE_TX_HANDSHAKE);
       }
 
       else if (rx_len == 1 && rx_buf[0] == 0xBB) {
         rx_connected = false;
+      }
+
+      else if (rx_len == 5 && rx_buf[0] == 0xFA) {
+        rx_flash = 1;
+        rx_rom_len = ((uint16_t)rx_buf[1] << 8) | rx_buf[2];
+        rx_src_len = ((uint16_t)rx_buf[3] << 8) | rx_buf[4];
+        if (rx_rom_len > STORAGE_ROM_MAX_LEN || rx_src_len > STORAGE_SRC_MAX_LEN) {
+          rx_flash = 0;
+          queue_tx(QUEUE_TX_FLASH_START_ERR);
+        } else {
+          queue_tx(QUEUE_TX_FLASH_START_OK);
+        }
       }
 
       // Wait for next packet
@@ -851,14 +929,19 @@ static void serial_rx_process_byte(uint8_t c)
 void tx_readings_if_connected()
 {
   if (!rx_connected) return;
+  if (rx_len != 0 && rx_ptr != rx_len) {
+    // XXX: Debug use
+    HAL_UART_Transmit(&uart2, (uint8_t []){ 3, 0x0a, rx_len, rx_ptr }, 4, HAL_MAX_DELAY);
+    if (HAL_GetTick() - rx_last_timestamp < RX_BYTE_TIMEOUT) {
+      return;
+    }
+  }
 
   uint8_t readings_buf[TX_READINGS_LEN];
   fill_tx_readings(readings_buf);
-  __disable_irq();
   HAL_UART_Transmit(&uart2, (uint8_t []){ TX_READINGS_LEN + 1 }, 1, HAL_MAX_DELAY);
   HAL_UART_Transmit(&uart2, (uint8_t []){ 0x56 }, 1, HAL_MAX_DELAY);
   HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
-  __enable_irq();
 }
 
 void SysTick_Handler()

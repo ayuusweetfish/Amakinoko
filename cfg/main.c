@@ -52,11 +52,6 @@ static void clear_readings_disp()
   uiLabelSetText(lbl_readings_i, "光照：— lx");
   for (int i = 0; i < 4; i++) readings_touch[i] = 0;
   uiAreaQueueRedrawAll(area_readings_c_indicators);
-  if (0) {
-    uiControlDisable(uiControl(box_program));
-    uiMultilineEntrySetText(text_source, "");
-    uiMultilineEntrySetReadOnly(text_source, true);
-  }
   uiControlDisable(uiControl(btn_upload));
 }
 
@@ -218,7 +213,8 @@ static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
   if (len > 0) {
     n_rx = sp_blocking_read(port, buf, len, 50);
     ensure_or_ret(-1, n_rx == len, "Did not receive packet payload");
-    for (int i = 0; i < n_rx; i++) fprintf(stderr, " %02x", (int)buf[i]);
+    for (int i = 0; i < n_rx && i < 32; i++) fprintf(stderr, " %02x", (int)buf[i]);
+    if (n_rx > 32) fprintf(stderr, "...");
   }
   fprintf(stderr, "\n");
 
@@ -228,11 +224,34 @@ static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
 static uint8_t rx_buf[256];
 static inline int rx() { return rx_timeout(rx_buf, 10); }
 
+static inline int thread_rx()
+{
+  int len;
+  while (true) {
+    len = rx_timeout(rx_buf, 10);
+    // XXX: Reduce duplication?
+    if (len == TX_READINGS_LEN + 1 && rx_buf[0] == 0x56) {
+      parse_readings((const uint8_t *)(rx_buf + 1));
+    } else {
+      return len;
+    }
+  }
+}
+
+static _Atomic bool serial_loop_pause_req, serial_loop_pause_state;
+
 static void *serial_loop_fn(void *_unused)
 {
   uint8_t buf[256];
   while (port != NULL) {
     // XXX: This might be better implemented with poll()/semaphores/..., but anyway
+    if (serial_loop_pause_state != serial_loop_pause_req) {
+      serial_loop_pause_state = serial_loop_pause_req;
+    }
+    if (serial_loop_pause_state) {
+      usleep(20000);
+      continue;
+    }
     int len = rx_timeout(buf, 50);
     if (len != -1) {
       uint8_t *buf_dup = malloc(len + 1);
@@ -244,10 +263,16 @@ static void *serial_loop_fn(void *_unused)
         fprintf(stderr, "Out of memory!\n");
       }
     } else {
-      usleep(50000);
+      usleep(20000);
     }
   }
   return NULL;
+}
+
+static inline void thread_rx_pause(bool flag)
+{
+  serial_loop_pause_req = flag;
+  while (serial_loop_pause_state != flag) usleep(10000);
 }
 
 #undef ensure_or_clear
@@ -351,7 +376,7 @@ static uint8_t mumu_src[65536];
 static void conn()
 {
 #define ensure_or_reject(_cond, ...) \
-  ensure_or_act(_cond, continue, __VA_ARGS__)
+  ensure_or_act(_cond, goto _retry, __VA_ARGS__)
 
   int sel = uiComboboxSelected(cbox_serial_port);
   if (sel < 0 || sel >= port_names_n) return;
@@ -364,8 +389,8 @@ static void conn()
   bool successful = false;
   for (int att = 0; att < 3; att++) {
     if (att > 0) {
-      fprintf(stderr, "att = %d\n", att);
-      usleep(3000 + 3000 * att);  // Reset device reception state
+      fprintf(stderr, "att = %d - Last error: %s\n", att, global_err_msg);
+      usleep(5000 + 3000 * att);  // Reset device reception state
     }
     // Try to request first packet of data
     if (tx((uint8_t []){0xAA}, 1) < 0) continue;
@@ -375,7 +400,8 @@ static void conn()
     ensure_or_reject(rx_len >= 11 &&
       memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
     uint8_t revision = rx_buf[10];
-    ensure_or_reject(revision == 0x20, "Invalid device revision %u", (unsigned)revision);
+    ensure_or_reject(revision == 0x20, "Invalid device revision 0x%02x", (unsigned)revision);
+    printf("Device revision 0x%02x\n", (unsigned)revision);
 
     ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
     parse_readings(rx_buf + 11);
@@ -392,22 +418,21 @@ static void conn()
     mumu_src[mumu_src_len] = '\0';
     uiMultilineEntrySetText(text_source, (const char *)mumu_src);
 
+    serial_loop_pause_req = serial_loop_pause_state = false;
     ensure_or_reject(
       pthread_create(&serial_loop_thr, NULL, &serial_loop_fn, NULL) == 0,
       "Cannot create thread, check system resource usage");
 
     successful = true;
     break;
+
+_retry: { }
   }
 
   if (!successful) {
     close_port();
     error_and_continue();
   } else {
-    if (0) {
-      uiControlEnable(uiControl(box_program));
-      uiMultilineEntrySetReadOnly(text_source, false);
-    }
     uiControlEnable(uiControl(btn_upload));
   }
   update_cbox_disp();
@@ -437,14 +462,23 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
 
   const char *rom = "";
 
+  thread_rx_pause(true);
   if (tx((uint8_t []){0xFA,
       rom_len / 256, rom_len % 256,
       src_len / 256, src_len % 256,
     }, 5) < 0) { error = true; goto _fin; }
-  if (tx((uint8_t *)rom, rom_len) < 0) { error = true; goto _fin; }
-  if (tx((uint8_t *)src, src_len) < 0) { error = true; goto _fin; }
+
+  // Check code
+  int rx_len = thread_rx();
+  if (rx_len < 0) { printf("!!!\n"); error = true; goto _fin; }
+  ensure_or_act(rx_len == 1 && rx_buf[0] == 0xFC,
+    { error = true; goto _fin; }, "Size exceeds limit");
+
+  // if (tx((uint8_t *)rom, rom_len) < 0) { error = true; goto _fin; }
+  // if (tx((uint8_t *)src, src_len) < 0) { error = true; goto _fin; }
 
 _fin:
+  thread_rx_pause(false);
   uiFreeText(src);
   if (error) error_and_continue();
 }
