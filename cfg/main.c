@@ -53,8 +53,9 @@ static uiBox *box_program, *box_fill;
 // results in the first (non-stretchy) element being stretched
 
 static uiLabel
-  *lbl_readings_t, *lbl_readings_p, *lbl_readings_h, *lbl_readings_i;
-static uiArea *area_readings_c_indicators;
+  *lbl_readings_t, *lbl_readings_p, *lbl_readings_h, *lbl_readings_i, *lbl_readings_c;
+static uiArea
+  *area_readings_t, *area_readings_p, *area_readings_h, *area_readings_i, *area_readings_c;
 
 static uint8_t readings_touch[4] = { 0 };
 
@@ -92,8 +93,13 @@ static void clear_readings_disp()
   uiLabelSetText(lbl_readings_p, "气压：— hPa");
   uiLabelSetText(lbl_readings_h, "湿度：— % RH");
   uiLabelSetText(lbl_readings_i, "光照：— lx");
+  uiLabelSetText(lbl_readings_c, "触摸：—");
   for (int i = 0; i < 4; i++) readings_touch[i] = 0;
-  uiAreaQueueRedrawAll(area_readings_c_indicators);
+  uiAreaQueueRedrawAll(area_readings_t);
+  uiAreaQueueRedrawAll(area_readings_p);
+  uiAreaQueueRedrawAll(area_readings_h);
+  uiAreaQueueRedrawAll(area_readings_i);
+  uiAreaQueueRedrawAll(area_readings_c);
   uiControlDisable(uiControl(btn_upload));
 }
 
@@ -116,7 +122,13 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uiLabelSetText(lbl_readings_h, s);
   snprintf(s, sizeof s, "光照：%d lx", (int)i);
   uiLabelSetText(lbl_readings_i, s);
-  uiAreaQueueRedrawAll(area_readings_c_indicators);
+  snprintf(s, sizeof s, "触摸：?");
+  uiLabelSetText(lbl_readings_c, s);
+  uiAreaQueueRedrawAll(area_readings_t);
+  uiAreaQueueRedrawAll(area_readings_p);
+  uiAreaQueueRedrawAll(area_readings_h);
+  uiAreaQueueRedrawAll(area_readings_i);
+  uiAreaQueueRedrawAll(area_readings_c);
 }
 
 // buf[0] is length; buf[1..=length] is payload
@@ -132,12 +144,51 @@ static void parse_continuous_rx(void *_buf)
   free(_buf);
 }
 
-static void indicators_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+static void draw_dashboard(uiAreaDrawParams *p)
 {
+  double w = p->AreaWidth, h = p->AreaHeight;
+  double x0 = w / 2, y0 = h / 2 + 5, r = h / 2, a = uiPi * 1.4;
+  uiDrawPath *path = uiDrawNewPath(uiDrawFillModeWinding);
+  uiDrawPathNewFigureWithArc(path, x0, y0, r, -uiPi * 0.5 - a / 2, a, false);
+  uiDrawPathEnd(path);
+  uiDrawStroke(p->Context, path, &(uiDrawBrush){
+    .Type = uiDrawBrushTypeSolid,
+    .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
+  }, &(uiDrawStrokeParams){
+    .Cap = uiDrawLineCapRound,
+    .Join = uiDrawLineJoinRound,
+    .Thickness = 2,
+    .MiterLimit = uiDrawDefaultMiterLimit,
+    .Dashes = NULL,
+    .NumDashes = 0,
+    .DashPhase = 0,
+  });
+}
+static void readings_t_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  draw_dashboard(p);
+}
+static void readings_p_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  draw_dashboard(p);
+}
+static void readings_h_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  draw_dashboard(p);
+}
+static void readings_i_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  draw_dashboard(p);
+}
+static void readings_c_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  double w = p->AreaWidth, h = p->AreaHeight;
+  double r = h / 4 - 3, spacing = r * 2 + 3;
+
   for (int i = 0; i < 4; i++) {
     uiDrawPath *path = uiDrawNewPath(uiDrawFillModeWinding);
-    const double r = 6, sw = 2, margin = 2;
-    double x = sw + r + (r * 2 + margin) * i, y = p->AreaHeight / 2;
+    double x = w / 2 + (__builtin_parity(i) - 0.5) * spacing;
+    double y = h / 2 + (i / 2 - 0.5) * spacing;
     uiDrawPathNewFigure(path, x, y);
     uiDrawPathArcTo(path, x, y, r, 0, uiPi * 2, false);
     uiDrawPathEnd(path);
@@ -148,19 +199,6 @@ static void indicators_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p
     });
     uiDrawFreePath(path);
   }
-}
-static void empty_ptr_event(uiAreaHandler *ah, uiArea *area, uiAreaMouseEvent *e)
-{
-}
-static void empty_hover(uiAreaHandler *ah, uiArea *area, int left)
-{
-}
-static void empty_drag_broken(uiAreaHandler *ah, uiArea *area)
-{
-}
-static int empty_key(uiAreaHandler *ah, uiArea *area, uiAreaKeyEvent *e)
-{
-  return false;
 }
 
 static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
@@ -182,6 +220,20 @@ static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
     });
     uiDrawFreePath(path);
   }
+}
+
+static void empty_ptr_event(uiAreaHandler *ah, uiArea *area, uiAreaMouseEvent *e)
+{
+}
+static void empty_hover(uiAreaHandler *ah, uiArea *area, int left)
+{
+}
+static void empty_drag_broken(uiAreaHandler *ah, uiArea *area)
+{
+}
+static int empty_key(uiAreaHandler *ah, uiArea *area, uiAreaKeyEvent *e)
+{
+  return false;
 }
 
 static struct sp_port *port = NULL;
@@ -604,6 +656,14 @@ static int window_on_closing(uiWindow *w, void *_unused)
   return 1;
 }
 
+static uiBox *vertical_box(int n)
+{
+  uiBox *box = uiNewVerticalBox();
+  for (int i = 0; i < n; i++)
+    uiBoxAppend(box, uiControl(uiNewLabel(" ")), false);
+  return box;
+}
+
 int main()
 {
   uiInitOptions o = { 0 };
@@ -658,37 +718,32 @@ int main()
   {
     uiBox *parent = box_readings;
 
-    lbl_readings_t = uiNewLabel("");
-    uiBoxAppend(parent, uiControl(lbl_readings_t), true);
-    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
-    lbl_readings_p = uiNewLabel("");
-    uiBoxAppend(parent, uiControl(lbl_readings_p), true);
-    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
-    lbl_readings_h = uiNewLabel("");
-    uiBoxAppend(parent, uiControl(lbl_readings_h), true);
-    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
-    lbl_readings_i = uiNewLabel("");
-    uiBoxAppend(parent, uiControl(lbl_readings_i), true);
-    uiBoxAppend(parent, uiControl(uiNewLabel("|")), false);
+    uiBoxAppend(parent, uiControl(vertical_box(5)), false);
 
-    uiBox *box_readings_c_container = uiNewHorizontalBox();
-    uiBoxAppend(parent, uiControl(box_readings_c_container), true);
-    {
-      uiBox *parent = box_readings_c_container;
-      uiLabel *lbl_readings_c_caption = uiNewLabel("触摸：");
-      uiBoxAppend(parent, uiControl(lbl_readings_c_caption), false);
+  #define add_box(_ASPECT) do { \
+    uiBox *box_##_ASPECT = uiNewVerticalBox(); \
+    uiBoxSetPadded(box_##_ASPECT, false); \
+    uiBoxAppend(parent, uiControl(box_##_ASPECT), true); \
+    static uiAreaHandler ah_##_ASPECT = { \
+      .Draw = readings_##_ASPECT##_draw, \
+      .MouseEvent = empty_ptr_event, \
+      .MouseCrossed = empty_hover, \
+      .DragBroken = empty_drag_broken, \
+      .KeyEvent = empty_key, \
+    }; \
+    area_readings_##_ASPECT = uiNewArea(&ah_##_ASPECT); \
+    uiBoxAppend(box_##_ASPECT, uiControl(area_readings_##_ASPECT), true); \
+    lbl_readings_##_ASPECT = uiNewLabel(""); \
+    uiBoxAppend(box_##_ASPECT, uiControl(lbl_readings_##_ASPECT), false); \
+  } while (0)
 
-      static uiAreaHandler ah = {
-        .Draw = indicators_draw,
-        .MouseEvent = empty_ptr_event,
-        .MouseCrossed = empty_hover,
-        .DragBroken = empty_drag_broken,
-        .KeyEvent = empty_key,
-      };
-      area_readings_c_indicators = uiNewArea(&ah);
-      uiBoxAppend(parent, uiControl(area_readings_c_indicators), true);
-      uiControlDisable(uiControl(area_readings_c_indicators));
-    }
+    add_box(t);
+    add_box(p);
+    add_box(h);
+    add_box(i);
+    add_box(c);
+
+    uiBoxAppend(parent, uiControl(vertical_box(5)), false); \
   }
 
   uiBox *box_lights = uiNewHorizontalBox();
@@ -697,10 +752,7 @@ int main()
   {
     uiBox *parent = box_lights;
 
-    uiBox *box_l = uiNewVerticalBox();
-    uiBoxAppend(parent, uiControl(box_l), false);
-    uiBoxAppend(box_l, uiControl(uiNewLabel(" ")), false);
-    uiBoxAppend(box_l, uiControl(uiNewLabel(" ")), false);
+    uiBoxAppend(parent, uiControl(vertical_box(2)), false);
 
     static uiAreaHandler ah = {
       .Draw = lights_draw,
@@ -713,10 +765,7 @@ int main()
     uiBoxAppend(parent, uiControl(area_lights), true);
     uiControlDisable(uiControl(area_lights));
 
-    uiBox *box_r = uiNewVerticalBox();
-    uiBoxAppend(parent, uiControl(box_r), false);
-    uiBoxAppend(box_r, uiControl(uiNewLabel(" ")), false);
-    uiBoxAppend(box_r, uiControl(uiNewLabel(" ")), false);
+    uiBoxAppend(parent, uiControl(vertical_box(2)), false);
   }
 
   btn_show_program = uiNewButton("▷ 程序");
