@@ -742,47 +742,59 @@ if (0) {
   }
 }
 
-  LED_OUT_PORT->BSRR = LED_OUT_PIN << 16; // Reset code, drive low
-  delay_us(60); // Nominal length is 50 us, leave some tolerance
-
   // 800 kHz = 80 cycles/bit
-  // N * 1.25 us = 30 us = 1920 cycles
-  // TODO: Since 800 kHz is on the same order of the serial transmission, this might need a revamp?
-  TIM3->SR = ~TIM_SR_UIF;
-  for (int i = 0; i < N; i++) {
-    // G
-    uint8_t g = buf[i][0];
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 64);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 32);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 16);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 8);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 4);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 2);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 1);
-    // R
-    uint8_t r = buf[i][1];
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 64);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 32);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 16);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 8);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 4);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 2);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 1);
-    // B
-    uint8_t b = buf[i][2];
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 64);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 32);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 16);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 8);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 4);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 2);
-    OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 1);
-  }
 
-  LED_OUT_PORT->BSRR = LED_OUT_PIN; // Release line, write high, to avoid continuous current
+  // XXX: Since 800 kHz is on the same order of the serial transmission,
+  // simply turnning off UART will lead to missed data;
+  // Also, DMA for RX is not appropriate as we'd like to monitor
+  // each byte's time of arrival.
+
+  // A possible solution is to switch to PA4's SPI2_MOSI (AF1) and DMA the data out.
+  // For now (Rev. 2), we check whether an we've been interrupted and retry if positive.
+  // TODO: Untested.
+  do {
+    LED_OUT_PORT->BSRR = LED_OUT_PIN << 16; // Reset code, drive low
+    delay_us(60); // Nominal length is 50 us, leave some tolerance
+
+    HAL_NVIC_DisableIRQ(SysTick_IRQn);
+    irqs_happened = false;
+    TIM3->SR = ~TIM_SR_UIF;
+    for (int i = 0; i < N; i++) {
+      // G
+      uint8_t g = buf[i][0];
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 64);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 32);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 16);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 8);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 4);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 2);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 1);
+      // R
+      uint8_t r = buf[i][1];
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 64);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 32);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 16);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 8);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 4);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 2);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 1);
+      // B
+      uint8_t b = buf[i][2];
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 64);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 32);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 16);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 8);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 4);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 2);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 1);
+    }
+
+    HAL_NVIC_EnableIRQ(SysTick_IRQn);
+    LED_OUT_PORT->BSRR = LED_OUT_PIN; // Release line, write high, to avoid continuous current
+  } while (irqs_happened);
 }
 #pragma GCC pop_options
 
