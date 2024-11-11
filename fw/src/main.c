@@ -106,6 +106,8 @@ static void run();
 static void queue_tx_flush();
 static void tx_readings_if_connected();
 
+static _Atomic bool irqs_happened;
+
 __attribute__ ((section(".RamFunc")))
 static void storage_write(uint32_t offs, const uint8_t data[256])
 {
@@ -188,19 +190,27 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
 
   inline void toggle(const bool level) {
     pull_electrodes(1 - level); // Pull to the opposite level before reading
-    int n_records = 0;
-    uint16_t last_v = (level == 1 ? ~FULL_MASK : FULL_MASK);
-    record[n_records] = (struct record_t){.t = (uint16_t)-1, .v = last_v};
-    __disable_irq();
-    HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, level);
-    for (int i = 0; i < 100; i++) {
-      uint32_t combined_v = GPIOA->IDR;
-      uint16_t cur_v = (level == 1 ? (combined_v | last_v) : (combined_v & last_v));
-      if (last_v != cur_v) n_records++;
-      record[n_records] = (struct record_t){.t = i, .v = cur_v};
-      last_v = cur_v;
-    }
-    __enable_irq();
+    int n_records;
+
+    // Instead of depending on timers, we simply retry if interrupts happen midway
+    do {
+      n_records = 0;
+      uint16_t last_v = (level == 1 ? ~FULL_MASK : FULL_MASK);
+      record[n_records] = (struct record_t){.t = (uint16_t)-1, .v = last_v};
+
+      HAL_NVIC_DisableIRQ(SysTick_IRQn);
+      irqs_happened = false;
+      HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, level);
+      for (int i = 0; i < 100; i++) {
+        uint32_t combined_v = GPIOA->IDR;
+        uint16_t cur_v = (level == 1 ? (combined_v | last_v) : (combined_v & last_v));
+        if (last_v != cur_v) n_records++;
+        record[n_records] = (struct record_t){.t = i, .v = cur_v};
+        last_v = cur_v;
+      }
+      HAL_NVIC_EnableIRQ(SysTick_IRQn);
+    } while (irqs_happened);
+
     for (int j = 0; j < N_ELECTRODES; j++) cap[j] = 0xffff;
     for (int i = 1; i <= n_records; i++) {
       uint16_t t = record[i - 1].t + 1;
@@ -735,7 +745,9 @@ if (0) {
   LED_OUT_PORT->BSRR = LED_OUT_PIN << 16; // Reset code, drive low
   delay_us(60); // Nominal length is 50 us, leave some tolerance
 
-  __disable_irq();
+  // 800 kHz = 80 cycles/bit
+  // N * 1.25 us = 30 us = 1920 cycles
+  // TODO: Since 800 kHz is on the same order of the serial transmission, this might need a revamp?
   TIM3->SR = ~TIM_SR_UIF;
   for (int i = 0; i < N; i++) {
     // G
@@ -769,7 +781,6 @@ if (0) {
     OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 2);
     OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 1);
   }
-  __enable_irq();
 
   LED_OUT_PORT->BSRR = LED_OUT_PIN; // Release line, write high, to avoid continuous current
 }
@@ -952,6 +963,7 @@ void SysTick_Handler()
 
 void USART2_IRQHandler()
 {
+  irqs_happened = true;
   HAL_UART_IRQHandler(&uart2);
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *_uart2)
