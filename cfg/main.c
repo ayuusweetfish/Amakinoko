@@ -1,5 +1,6 @@
 #include "libui/ui.h"
 #include "libserialport/libserialport.h"
+#include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -57,8 +58,6 @@ static uiLabel
 static uiArea
   *area_readings_t, *area_readings_p, *area_readings_h, *area_readings_i, *area_readings_c;
 
-static uint8_t readings_touch[4] = { 0 };
-
 static uiArea *area_lights;
 
 static uiMultilineEntry *text_source;
@@ -87,6 +86,12 @@ static inline void status_bar(const char *s)
   uiLabelSetText(lbl_status_bar, s);
 }
 
+struct readings_t {
+  double t, p, h;
+  int i;
+  uint8_t c[4];
+} last_readings;
+
 static void clear_readings_disp()
 {
   uiLabelSetText(lbl_readings_t, "温度：— ˚C");
@@ -94,7 +99,7 @@ static void clear_readings_disp()
   uiLabelSetText(lbl_readings_h, "湿度：— % RH");
   uiLabelSetText(lbl_readings_i, "光照：— lx");
   uiLabelSetText(lbl_readings_c, "触摸：—");
-  for (int i = 0; i < 4; i++) readings_touch[i] = 0;
+  for (int i = 0; i < 4; i++) last_readings.c[i] = 0;
   uiAreaQueueRedrawAll(area_readings_t);
   uiAreaQueueRedrawAll(area_readings_p);
   uiAreaQueueRedrawAll(area_readings_h);
@@ -111,18 +116,25 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uint16_t p = ((uint16_t)buf[ 4] << 8) | buf[ 5];
   uint16_t h = ((uint16_t)buf[ 6] << 8) | buf[ 7];
   uint16_t i = ((uint16_t)buf[ 8] << 8) | buf[ 9];
-  memcpy(readings_touch, buf + 10, 4);
+
+  last_readings.t = (double)t / 100;
+  last_readings.p = (double)((uint32_t)p + 65536) / 100;
+  last_readings.h = (double)h / 100;
+  last_readings.i = (int)i;
+  memcpy(last_readings.c, buf + 10, 4);
 
   char s[64];
-  snprintf(s, sizeof s, "温度：%.2f ˚C", (double)t / 100);
+  snprintf(s, sizeof s, "温度：%.2f ˚C", last_readings.t);
   uiLabelSetText(lbl_readings_t, s);
-  snprintf(s, sizeof s, "气压：%.2f hPa", (double)((uint32_t)p + 65536) / 100);
+  snprintf(s, sizeof s, "气压：%.2f hPa", last_readings.p);
   uiLabelSetText(lbl_readings_p, s);
-  snprintf(s, sizeof s, "湿度：%.2f%% RH", (double)h / 100);
+  snprintf(s, sizeof s, "湿度：%.2f%% RH", last_readings.h);
   uiLabelSetText(lbl_readings_h, s);
-  snprintf(s, sizeof s, "光照：%d lx", (int)i);
+  snprintf(s, sizeof s, "光照：%d lx", last_readings.i);
   uiLabelSetText(lbl_readings_i, s);
-  snprintf(s, sizeof s, "触摸：?");
+  int c_max = 0;
+  for (int i = 0; i < 4; i++) if (c_max < last_readings.c[i]) c_max = last_readings.c[i];
+  snprintf(s, sizeof s, "触摸：%d%%", (c_max * 100 + 127) / 255);
   uiLabelSetText(lbl_readings_c, s);
   uiAreaQueueRedrawAll(area_readings_t);
   uiAreaQueueRedrawAll(area_readings_p);
@@ -144,14 +156,37 @@ static void parse_continuous_rx(void *_buf)
   free(_buf);
 }
 
-static void draw_dashboard(uiAreaDrawParams *p)
+static void draw_dashboard(uiAreaDrawParams *p, double val, double mid, double half_range)
 {
   double w = p->AreaWidth, h = p->AreaHeight;
-  double x0 = w / 2, y0 = h / 2 + 5, r = h / 2, a = uiPi * 1.4;
+  double x0 = w / 2, y0 = h / 2 + 5, r = h / 2 - 3, a = uiPi * 1.4;
+
   uiDrawPath *path = uiDrawNewPath(uiDrawFillModeWinding);
   uiDrawPathNewFigureWithArc(path, x0, y0, r, -uiPi * 0.5 - a / 2, a, false);
   uiDrawPathEnd(path);
   uiDrawStroke(p->Context, path, &(uiDrawBrush){
+    .Type = uiDrawBrushTypeSolid,
+    .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.25,
+  }, &(uiDrawStrokeParams){
+    .Cap = uiDrawLineCapRound,
+    .Join = uiDrawLineJoinRound,
+    .Thickness = 2,
+    .MiterLimit = uiDrawDefaultMiterLimit,
+    .Dashes = NULL,
+    .NumDashes = 0,
+    .DashPhase = 0,
+  });
+  uiDrawFreePath(path);
+
+  uiDrawPath *path_ptr = uiDrawNewPath(uiDrawFillModeWinding);
+  uiDrawPathNewFigure(path_ptr, x0, y0);
+  double angle_norm = (val - mid) / (half_range * 2);
+  if (angle_norm < -0.5) angle_norm = -0.5;
+  if (angle_norm >  0.5) angle_norm =  0.5;
+  double angle_ptr = -uiPi * 0.5 + angle_norm * a;
+  uiDrawPathLineTo(path_ptr, x0 + cos(angle_ptr) * (r + 4), y0 + sin(angle_ptr) * (r + 4));
+  uiDrawPathEnd(path_ptr);
+  uiDrawStroke(p->Context, path_ptr, &(uiDrawBrush){
     .Type = uiDrawBrushTypeSolid,
     .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
   }, &(uiDrawStrokeParams){
@@ -163,22 +198,23 @@ static void draw_dashboard(uiAreaDrawParams *p)
     .NumDashes = 0,
     .DashPhase = 0,
   });
+  uiDrawFreePath(path_ptr);
 }
 static void readings_t_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p);
+  draw_dashboard(p, last_readings.t, 25, 25);
 }
 static void readings_p_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p);
+  draw_dashboard(p, last_readings.p, 1013.25, 50);
 }
 static void readings_h_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p);
+  draw_dashboard(p, last_readings.h, 50, 50);
 }
 static void readings_i_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p);
+  draw_dashboard(p, log(last_readings.i), 6, 3);
 }
 static void readings_c_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
@@ -195,7 +231,7 @@ static void readings_c_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p
 
     uiDrawFill(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
-      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.1 + 0.9 / 255 * readings_touch[i],
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.1 + 0.9 / 255 * last_readings.c[i],
     });
     uiDrawFreePath(path);
   }
@@ -210,13 +246,29 @@ static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
   for (int i = 0; i < 24; i++) {
     uiDrawPath *path = uiDrawNewPath(uiDrawFillModeWinding);
     double x = w / 2 + spacing * (i - 11.5), y = h / 2;
-    uiDrawPathNewFigure(path, x, y);
-    uiDrawPathArcTo(path, x, y, r, 0, uiPi * 2, false);
+    uiDrawPathNewFigureWithArc(path, x, y, r, 0, uiPi * 2, false);
     uiDrawPathEnd(path);
 
     uiDrawFill(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.5,
+    });
+
+    uiDrawFill(p->Context, path, &(uiDrawBrush){
+      .Type = uiDrawBrushTypeSolid,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.75,
+    });
+    uiDrawStroke(p->Context, path, &(uiDrawBrush){
+      .Type = uiDrawBrushTypeSolid,
       .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
+    }, &(uiDrawStrokeParams){
+      .Cap = uiDrawLineCapRound,
+      .Join = uiDrawLineJoinRound,
+      .Thickness = 2,
+      .MiterLimit = uiDrawDefaultMiterLimit,
+      .Dashes = NULL,
+      .NumDashes = 0,
+      .DashPhase = 0,
     });
     uiDrawFreePath(path);
   }
