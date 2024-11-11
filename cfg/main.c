@@ -46,16 +46,36 @@ static void error_and_continue()
   }
 }
 
+static uiButton *btn_show_program;
+static uiBox *box_program, *box_fill;
+// `box_fill` is a workaround for libui's stretch bug
+// where (at least on macOS) a single hidden stretchy element
+// results in the first (non-stretchy) element being stretched
+
 static uiLabel
   *lbl_readings_t, *lbl_readings_p, *lbl_readings_h, *lbl_readings_i;
 static uiArea *area_readings_c_indicators;
 
 static uint8_t readings_touch[4] = { 0 };
 
-static uiBox *box_program;
+static uiArea *area_lights;
+
 static uiMultilineEntry *text_source;
 static uiButton *btn_check, *btn_upload;
 static uiLabel *lbl_status_bar;
+
+static inline void btn_show_program_clicked(uiButton *btn, void *_unused)
+{
+  if (!uiControlVisible(uiControl(box_program))) {
+    uiButtonSetText(btn_show_program, "▽ 程序");
+    uiControlShow(uiControl(box_program));
+    uiControlHide(uiControl(box_fill));
+  } else {
+    uiButtonSetText(btn_show_program, "▷ 程序");
+    uiControlHide(uiControl(box_program));
+    uiControlShow(uiControl(box_fill));
+  }
+}
 
 static inline void clear_status_bar()
 {
@@ -129,18 +149,39 @@ static void indicators_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p
     uiDrawFreePath(path);
   }
 }
-static void indicators_ptr_event(uiAreaHandler *ah, uiArea *area, uiAreaMouseEvent *e)
+static void empty_ptr_event(uiAreaHandler *ah, uiArea *area, uiAreaMouseEvent *e)
 {
 }
-static void indicators_hover(uiAreaHandler *ah, uiArea *area, int left)
+static void empty_hover(uiAreaHandler *ah, uiArea *area, int left)
 {
 }
-static void indicators_drag_broken(uiAreaHandler *ah, uiArea *area)
+static void empty_drag_broken(uiAreaHandler *ah, uiArea *area)
 {
 }
-static int indicators_key(uiAreaHandler *ah, uiArea *area, uiAreaKeyEvent *e)
+static int empty_key(uiAreaHandler *ah, uiArea *area, uiAreaKeyEvent *e)
 {
   return false;
+}
+
+static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
+{
+  double w = p->AreaWidth, h = p->AreaHeight;
+  const double r = 10;
+  double spacing = w / 24;
+  if (spacing > r * 2 + 2) spacing = r * 2 + 2;
+  for (int i = 0; i < 24; i++) {
+    uiDrawPath *path = uiDrawNewPath(uiDrawFillModeWinding);
+    double x = w / 2 + spacing * (i - 11.5), y = h / 2;
+    uiDrawPathNewFigure(path, x, y);
+    uiDrawPathArcTo(path, x, y, r, 0, uiPi * 2, false);
+    uiDrawPathEnd(path);
+
+    uiDrawFill(p->Context, path, &(uiDrawBrush){
+      .Type = uiDrawBrushTypeSolid,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
+    });
+    uiDrawFreePath(path);
+  }
 }
 
 static struct sp_port *port = NULL;
@@ -639,16 +680,48 @@ int main()
 
       static uiAreaHandler ah = {
         .Draw = indicators_draw,
-        .MouseEvent = indicators_ptr_event,
-        .MouseCrossed = indicators_hover,
-        .DragBroken = indicators_drag_broken,
-        .KeyEvent = indicators_key,
+        .MouseEvent = empty_ptr_event,
+        .MouseCrossed = empty_hover,
+        .DragBroken = empty_drag_broken,
+        .KeyEvent = empty_key,
       };
       area_readings_c_indicators = uiNewArea(&ah);
       uiBoxAppend(parent, uiControl(area_readings_c_indicators), true);
       uiControlDisable(uiControl(area_readings_c_indicators));
     }
   }
+
+  uiBox *box_lights = uiNewHorizontalBox();
+  uiBoxSetPadded(box_lights, true);
+  uiBoxAppend(box_main, uiControl(box_lights), false);
+  {
+    uiBox *parent = box_lights;
+
+    uiBox *box_l = uiNewVerticalBox();
+    uiBoxAppend(parent, uiControl(box_l), false);
+    uiBoxAppend(box_l, uiControl(uiNewLabel(" ")), false);
+    uiBoxAppend(box_l, uiControl(uiNewLabel(" ")), false);
+
+    static uiAreaHandler ah = {
+      .Draw = lights_draw,
+      .MouseEvent = empty_ptr_event,
+      .MouseCrossed = empty_hover,
+      .DragBroken = empty_drag_broken,
+      .KeyEvent = empty_key,
+    };
+    area_lights = uiNewArea(&ah);
+    uiBoxAppend(parent, uiControl(area_lights), true);
+    uiControlDisable(uiControl(area_lights));
+
+    uiBox *box_r = uiNewVerticalBox();
+    uiBoxAppend(parent, uiControl(box_r), false);
+    uiBoxAppend(box_r, uiControl(uiNewLabel(" ")), false);
+    uiBoxAppend(box_r, uiControl(uiNewLabel(" ")), false);
+  }
+
+  btn_show_program = uiNewButton("▷ 程序");
+  uiBoxAppend(box_main, uiControl(btn_show_program), false);
+  uiButtonOnClicked(btn_show_program, btn_show_program_clicked, NULL);
 
   box_program = uiNewVerticalBox();
   uiBoxSetPadded(box_program, true);
@@ -666,10 +739,15 @@ int main()
     btn_upload = uiNewButton("上传");
     uiBoxAppend(parent, uiControl(btn_upload), false);
     uiButtonOnClicked(btn_upload, btn_upload_clicked, NULL);
-
-    lbl_status_bar = uiNewLabel("");
-    uiBoxAppend(parent, uiControl(lbl_status_bar), false);
   }
+  uiControlHide(uiControl(box_program));
+
+  lbl_status_bar = uiNewLabel("");
+  uiBoxAppend(box_main, uiControl(lbl_status_bar), false);
+
+  box_fill = uiNewVerticalBox();
+  uiBoxSetPadded(box_fill, true);
+  uiBoxAppend(box_main, uiControl(box_fill), true);
 
   clear_readings_disp();
 
