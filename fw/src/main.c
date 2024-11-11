@@ -927,13 +927,13 @@ static uint16_t rx_ptr = 0;
 
 static uint8_t rx_flash = 0;  // 0 - inactive, 1 - ROM, 2 - source
 static uint16_t rx_rom_len, rx_src_len;
-static uint32_t rx_flash_ptr;
+static uint16_t rx_flash_ptr;
 __attribute__ ((aligned(8))) static uint8_t flash_buf[256];
 
 #define RX_BYTE_TIMEOUT 3
 static uint32_t rx_last_timestamp = (uint32_t)-RX_BYTE_TIMEOUT;
 
-#define RX_FLASH_PACKET_TIMEOUT 50
+#define RX_FLASH_PACKET_TIMEOUT 100
 static uint32_t rx_flash_last_timestamp = (uint32_t)-RX_FLASH_PACKET_TIMEOUT;
 
 #pragma GCC push_options
@@ -969,8 +969,10 @@ static void serial_rx_process_byte(uint8_t c)
         for (p++; p != 0; p++) flash_buf[p] = 0xff;
         uint32_t row_offs = ((rx_flash_ptr - 1) & ~0xff);
         storage_write(STORAGE_ROM_OFFS + row_offs, flash_buf);
-        rx_flash = 2;
-        rx_flash_ptr = 0;
+        if (rx_flash_ptr == rx_rom_len) {
+          rx_flash = 2;
+          rx_flash_ptr = 0;
+        }
       }
     } else {  // rx_flash == 2
       uint8_t p = rx_flash_ptr % 256;
@@ -979,20 +981,22 @@ static void serial_rx_process_byte(uint8_t c)
         for (p++; p != 0; p++) flash_buf[p] = 0xff;
         uint32_t row_offs = ((rx_flash_ptr - 1) & ~0xff);
         // XXX: Too much duplication?
-        if (rx_flash_ptr == rx_src_len && row_offs == (STORAGE_ROM_LEN_OFFS & ~0xff)) {
+        if (rx_flash_ptr == rx_src_len && STORAGE_SRC_OFFS + row_offs == (STORAGE_ROM_LEN_OFFS & ~0xff)) {
           *(uint16_t *)&flash_buf[STORAGE_ROM_LEN_OFFS % 256] = rx_rom_len;
           *(uint16_t *)&flash_buf[STORAGE_SRC_LEN_OFFS % 256] = rx_src_len;
         }
         storage_write(STORAGE_SRC_OFFS + row_offs, flash_buf);
-        if (rx_flash_ptr == rx_src_len && row_offs != (STORAGE_ROM_LEN_OFFS & ~0xff)) {
+        if (rx_flash_ptr == rx_src_len && STORAGE_SRC_OFFS + row_offs != (STORAGE_ROM_LEN_OFFS & ~0xff)) {
           // Write last row
           memset(flash_buf, 0xff, 256);
           *(uint16_t *)&flash_buf[STORAGE_ROM_LEN_OFFS % 256] = rx_rom_len;
           *(uint16_t *)&flash_buf[STORAGE_SRC_LEN_OFFS % 256] = rx_src_len;
           storage_write(STORAGE_ROM_LEN_OFFS & ~0xff, flash_buf);
         }
-        rx_flash = 0;
-        queue_tx(QUEUE_TX_FLASH_CRC);
+        if (rx_flash_ptr == rx_src_len) {
+          rx_flash = 0;
+          queue_tx(QUEUE_TX_FLASH_CRC);
+        }
       }
     }
 
@@ -1016,7 +1020,8 @@ static void serial_rx_process_byte(uint8_t c)
         rx_flash = 1;
         rx_rom_len = ((uint16_t)rx_buf[1] << 8) | rx_buf[2];
         rx_src_len = ((uint16_t)rx_buf[3] << 8) | rx_buf[4];
-        if (rx_rom_len > STORAGE_ROM_MAX_LEN || rx_src_len > STORAGE_SRC_MAX_LEN) {
+        if (rx_rom_len == 0 || rx_rom_len > STORAGE_ROM_MAX_LEN ||
+            rx_src_len == 0 || rx_src_len > STORAGE_SRC_MAX_LEN) {
           rx_flash = 0;
           queue_tx(QUEUE_TX_FLASH_START_ERR);
         } else {

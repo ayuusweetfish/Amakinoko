@@ -210,7 +210,8 @@ static inline int tx(const uint8_t *buf, uint16_t len)
   ensure_or_ret(-1, n_tx == len, "Cannot write to port");
 
   fprintf(stderr, "tx [%02x]", (unsigned)len);
-  for (int i = 0; i < len; i++) fprintf(stderr, " %02x", (unsigned)buf[i]);
+  for (int i = 0; i < len && i < 32; i++) fprintf(stderr, " %02x", (unsigned)buf[i]);
+  if (n_tx > 32) fprintf(stderr, "...");
   fprintf(stderr, "\n");
 
   return len;
@@ -441,7 +442,8 @@ static void conn()
     printf("received %d bytes source\n", rx_len);
     mumu_src[mumu_src_len] = '\0';
     for (int i = 0; i < mumu_src_len; i++)
-      if (mumu_src[i] < 32 || mumu_src[i] > 126) mumu_src[i] = '?';
+      if ((mumu_src[i] < 32 || mumu_src[i] > 126) && mumu_src[i] != '\n')
+        mumu_src[i] = '?';
     uiMultilineEntrySetText(text_source, (const char *)mumu_src);
 
     serial_loop_pause_req = serial_loop_pause_state = false;
@@ -490,6 +492,8 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
   const char *rom = "1234";
   rom_len = strlen(rom);
 
+  ensure_or_act(rom_len > 0 && src_len > 0,
+    { error = true; goto _fin; }, "Program cannot be empty");
   ensure_or_act(rom_len <= 0xffff && src_len <= 0xffff,
     { error = true; goto _fin; }, "Size exceeds limit");
 
