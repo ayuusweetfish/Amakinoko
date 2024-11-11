@@ -721,9 +721,8 @@ int main()
     uiBoxAppend(parent, uiControl(vertical_box(5)), false);
 
   #define add_box(_ASPECT) do { \
-    uiBox *box_##_ASPECT = uiNewVerticalBox(); \
-    uiBoxSetPadded(box_##_ASPECT, false); \
-    uiBoxAppend(parent, uiControl(box_##_ASPECT), true); \
+    uiGrid *h = uiNewGrid(); \
+    uiBoxAppend(parent, uiControl(h), true); \
     static uiAreaHandler ah_##_ASPECT = { \
       .Draw = readings_##_ASPECT##_draw, \
       .MouseEvent = empty_ptr_event, \
@@ -732,9 +731,9 @@ int main()
       .KeyEvent = empty_key, \
     }; \
     area_readings_##_ASPECT = uiNewArea(&ah_##_ASPECT); \
-    uiBoxAppend(box_##_ASPECT, uiControl(area_readings_##_ASPECT), true); \
+    uiGridAppend(h, uiControl(area_readings_##_ASPECT), 0, 0, 1, 1, true, uiAlignFill, true, uiAlignFill); \
     lbl_readings_##_ASPECT = uiNewLabel(""); \
-    uiBoxAppend(box_##_ASPECT, uiControl(lbl_readings_##_ASPECT), false); \
+    uiGridAppend(h, uiControl(lbl_readings_##_ASPECT), 0, 1, 1, 1, false, uiAlignCenter, false, uiAlignFill); \
   } while (0)
 
     add_box(t);
