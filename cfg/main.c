@@ -92,6 +92,8 @@ struct readings_t {
   uint8_t c[4];
 } last_readings;
 
+static bool readings_is_valid = false;
+
 static void clear_readings_disp()
 {
   uiLabelSetText(lbl_readings_t, "温度：— ˚C");
@@ -100,11 +102,13 @@ static void clear_readings_disp()
   uiLabelSetText(lbl_readings_i, "光照：— lx");
   uiLabelSetText(lbl_readings_c, "触摸：—");
   for (int i = 0; i < 4; i++) last_readings.c[i] = 0;
+  readings_is_valid = false;
   uiAreaQueueRedrawAll(area_readings_t);
   uiAreaQueueRedrawAll(area_readings_p);
   uiAreaQueueRedrawAll(area_readings_h);
   uiAreaQueueRedrawAll(area_readings_i);
   uiAreaQueueRedrawAll(area_readings_c);
+  uiAreaQueueRedrawAll(area_lights);
   uiControlDisable(uiControl(btn_upload));
 }
 
@@ -122,6 +126,7 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   last_readings.h = (double)h / 100;
   last_readings.i = (int)i;
   memcpy(last_readings.c, buf + 10, 4);
+  readings_is_valid = true;
 
   char s[64];
   snprintf(s, sizeof s, "温度：%.2f ˚C", last_readings.t);
@@ -141,6 +146,7 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uiAreaQueueRedrawAll(area_readings_h);
   uiAreaQueueRedrawAll(area_readings_i);
   uiAreaQueueRedrawAll(area_readings_c);
+  uiAreaQueueRedrawAll(area_lights);
 }
 
 // buf[0] is length; buf[1..=length] is payload
@@ -156,7 +162,7 @@ static void parse_continuous_rx(void *_buf)
   free(_buf);
 }
 
-static void draw_dashboard(uiAreaDrawParams *p, double val, double mid, double half_range)
+static void draw_dashboard(uiAreaDrawParams *p, bool enable, double val, double mid, double half_range)
 {
   double w = p->AreaWidth, h = p->AreaHeight;
   double x0 = w / 2, y0 = h / 2 + 5, r = h / 2 - 3, a = uiPi * 1.4;
@@ -178,43 +184,45 @@ static void draw_dashboard(uiAreaDrawParams *p, double val, double mid, double h
   });
   uiDrawFreePath(path);
 
-  uiDrawPath *path_ptr = uiDrawNewPath(uiDrawFillModeWinding);
-  uiDrawPathNewFigure(path_ptr, x0, y0);
-  double angle_norm = (val - mid) / (half_range * 2);
-  if (angle_norm < -0.5) angle_norm = -0.5;
-  if (angle_norm >  0.5) angle_norm =  0.5;
-  double angle_ptr = -uiPi * 0.5 + angle_norm * a;
-  uiDrawPathLineTo(path_ptr, x0 + cos(angle_ptr) * (r + 4), y0 + sin(angle_ptr) * (r + 4));
-  uiDrawPathEnd(path_ptr);
-  uiDrawStroke(p->Context, path_ptr, &(uiDrawBrush){
-    .Type = uiDrawBrushTypeSolid,
-    .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
-  }, &(uiDrawStrokeParams){
-    .Cap = uiDrawLineCapRound,
-    .Join = uiDrawLineJoinRound,
-    .Thickness = 2,
-    .MiterLimit = uiDrawDefaultMiterLimit,
-    .Dashes = NULL,
-    .NumDashes = 0,
-    .DashPhase = 0,
-  });
-  uiDrawFreePath(path_ptr);
+  if (enable) {
+    uiDrawPath *path_ptr = uiDrawNewPath(uiDrawFillModeWinding);
+    uiDrawPathNewFigure(path_ptr, x0, y0);
+    double angle_norm = (val - mid) / (half_range * 2);
+    if (angle_norm < -0.5) angle_norm = -0.5;
+    if (angle_norm >  0.5) angle_norm =  0.5;
+    double angle_ptr = -uiPi * 0.5 + angle_norm * a;
+    uiDrawPathLineTo(path_ptr, x0 + cos(angle_ptr) * (r + 4), y0 + sin(angle_ptr) * (r + 4));
+    uiDrawPathEnd(path_ptr);
+    uiDrawStroke(p->Context, path_ptr, &(uiDrawBrush){
+      .Type = uiDrawBrushTypeSolid,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
+    }, &(uiDrawStrokeParams){
+      .Cap = uiDrawLineCapRound,
+      .Join = uiDrawLineJoinRound,
+      .Thickness = 2,
+      .MiterLimit = uiDrawDefaultMiterLimit,
+      .Dashes = NULL,
+      .NumDashes = 0,
+      .DashPhase = 0,
+    });
+    uiDrawFreePath(path_ptr);
+  }
 }
 static void readings_t_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p, last_readings.t, 25, 25);
+  draw_dashboard(p, readings_is_valid, last_readings.t, 25, 25);
 }
 static void readings_p_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p, last_readings.p, 1013.25, 50);
+  draw_dashboard(p, readings_is_valid, last_readings.p, 1013.25, 50);
 }
 static void readings_h_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p, last_readings.h, 50, 50);
+  draw_dashboard(p, readings_is_valid, last_readings.h, 50, 50);
 }
 static void readings_i_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
-  draw_dashboard(p, log(last_readings.i), 6, 3);
+  draw_dashboard(p, readings_is_valid, log(last_readings.i), 6, 3);
 }
 static void readings_c_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 {
@@ -251,16 +259,11 @@ static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
 
     uiDrawFill(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
-      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.5,
-    });
-
-    uiDrawFill(p->Context, path, &(uiDrawBrush){
-      .Type = uiDrawBrushTypeSolid,
-      .R = 0.1, .G = 0.1, .B = 0.1, .A = 0.75,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = (readings_is_valid ? 0.75 : 0.2),
     });
     uiDrawStroke(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
-      .R = 0.1, .G = 0.1, .B = 0.1, .A = 1,
+      .R = 0.1, .G = 0.1, .B = 0.1, .A = (readings_is_valid ? 1 : 0.25),
     }, &(uiDrawStrokeParams){
       .Cap = uiDrawLineCapRound,
       .Join = uiDrawLineJoinRound,
