@@ -632,14 +632,19 @@ static void btn_serial_port_conn_clicked(uiButton *btn, void *_unused)
   }
 }
 
-static void assemble()
+static uint32_t assembled_rom[1024];
+static uint32_t assembled_rom_len;
+
+static bool assemble()
 {
   char *src = uiMultilineEntryText(text_source);
 
-  uint32_t c[65536];
   struct file_pos_t err_pos;
   char err_msg[64];
-  uint32_t len = mumu_as_assemble(src, c, sizeof c / sizeof c[0], &err_pos, err_msg, sizeof err_msg);
+  assembled_rom_len = mumu_as_assemble(
+    src,
+    assembled_rom, sizeof assembled_rom / sizeof assembled_rom[0],
+    &err_pos, err_msg, sizeof err_msg);
 
   char msg_full[128];
   if (err_pos.line != 0) {
@@ -647,11 +652,19 @@ static void assemble()
       "(%u:%u): %s", (unsigned)err_pos.line, (unsigned)err_pos.col, err_msg);
   } else {
     snprintf(msg_full, sizeof msg_full,
-      "✓ 检查完成，程序已编译（长度 %u）", (unsigned)len);
+      "✓ 检查完成，程序已编译（长度 %u）", (unsigned)assembled_rom_len);
   }
   status_bar(msg_full);
 
+  // Endianness check, convert to little endian
+  uint16_t half_word = 0x0001;
+  if (*(uint8_t *)&half_word != 0x01) {
+    for (int i = 0; i < assembled_rom_len; i++)
+      assembled_rom[i] = __builtin_bswap32(assembled_rom[i]);
+  }
+
   uiFreeText(src);
+  return (err_pos.line == 0);
 }
 
 static void btn_check_clicked(uiButton *btn, void *_unused)
@@ -661,14 +674,16 @@ static void btn_check_clicked(uiButton *btn, void *_unused)
 
 static void btn_upload_clicked(uiButton *btn, void *_unused)
 {
+  if (!assemble()) return;
+
   int rom_len = 0, src_len = 0;
   bool error = false;
 
+  const uint8_t *rom = (uint8_t *)assembled_rom;
+  rom_len = assembled_rom_len * 4;
+
   char *src = uiMultilineEntryText(text_source);
   src_len = strlen(src);
-
-  const char *rom = "1234";
-  rom_len = strlen(rom);
 
   ensure_or_act(rom_len > 0 && src_len > 0,
     { error = true; goto _fin; }, "Program cannot be empty");
