@@ -10,6 +10,8 @@
 
 #include "crc32.h"
 
+#include "mumu_as.h"
+
 static uiWindow *w;
 
 static int on_should_quit(void *_unused)
