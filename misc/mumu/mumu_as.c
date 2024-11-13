@@ -19,7 +19,7 @@ enum mnemonic_word {
 
   MN_DATA,
 };
-static uint8_t mnemonic_trie[100][27];
+static uint8_t mnemonic_trie[90][27];
 
 void mumu_as_init()
 {
@@ -104,21 +104,40 @@ static int hex_digit(int c)
 
 static uint32_t line_num, col_num, saved_col_num;
 
+#ifdef MUMU_AS_STDIO
+  static FILE *mumu_f;
+  #define mumu_getchar_raw()    fgetc(mumu_f)
+  #define mumu_ungetchar_raw(c) ungetc(c, mumu_f)
+#else
+  static const char *mumu_s;
+  static size_t mumu_s_ptr;
+  #define mumu_getchar_raw()    ((uint8_t)mumu_s[mumu_s_ptr++])
+  #define mumu_ungetchar_raw(c) (mumu_s_ptr--)
+#endif
+
 static inline int my_getchar()
 {
-  int c = getchar();
+  int c = mumu_getchar_raw();
+#ifndef MUMU_AS_STDIO
+  if (c == '\0') c = EOF;
+#endif
   if (c == '\n') { line_num++; saved_col_num = col_num; col_num = 0; }
   else col_num++;
   return c;
 }
 static inline void my_ungetchar(int c)
 {
-  ungetc(c, stdin);
+  mumu_ungetchar_raw(c);
   if (c == '\n') { line_num--; col_num = saved_col_num; }
   else col_num--;
 }
 
 uint32_t mumu_as_assemble(
+#ifdef MUMU_AS_STDIO
+  FILE *f,
+#else
+  const char *s,
+#endif
   uint32_t *restrict rom, uint32_t limit,
   struct file_pos_t *o_err_pos, char *o_err_msg, uint32_t err_msg_len_limit)
 {
@@ -126,6 +145,13 @@ uint32_t mumu_as_assemble(
   int c;
   line_num = 1;
   col_num = 0;
+
+#ifdef MUMU_AS_STDIO
+  mumu_f = f;
+#else
+  mumu_s = s;
+  mumu_s_ptr = 0;
+#endif
 
   uint32_t backward_labels[26];
   for (uint8_t i = 0; i < 26; i++) backward_labels[i] = (uint32_t)-1;
@@ -299,7 +325,7 @@ uint32_t mumu_as_assemble(
 
       // Find operand
       while ((c = my_getchar()) != EOF && c != '\n' && (isspace(c) || c == ',')) { }
-      if (c == EOF || c == '\n') break;
+      if (c == EOF || c == '\n') { my_ungetchar(c); break; }
       if (c == '#') { // Comment
         while ((c = my_getchar()) != EOF && c != '\n') { }
         break;
@@ -345,7 +371,10 @@ uint32_t mumu_as_assemble(
         } else if (dir == 'f') {
           o.ty = LABEL_F;
         } else {
-          report_error_pos(start_pos, "Invalid direction %c\n", dir);
+          char dir_expr[17];
+          if (dir >= 32 && dir <= 126) { dir_expr[0] = dir; dir_expr[1] = '\0'; }
+          else snprintf(dir_expr, sizeof dir_expr, "(character %d)", dir);
+          report_error_pos(start_pos, "Invalid direction %s", dir_expr);
         }
         o.n = tolower(c) - 'a';
       }

@@ -632,8 +632,31 @@ static void btn_serial_port_conn_clicked(uiButton *btn, void *_unused)
   }
 }
 
+static void assemble()
+{
+  char *src = uiMultilineEntryText(text_source);
+
+  uint32_t c[65536];
+  struct file_pos_t err_pos;
+  char err_msg[64];
+  uint32_t len = mumu_as_assemble(src, c, sizeof c / sizeof c[0], &err_pos, err_msg, sizeof err_msg);
+
+  char msg_full[128];
+  if (err_pos.line != 0) {
+    snprintf(msg_full, sizeof msg_full,
+      "(%u:%u): %s", (unsigned)err_pos.line, (unsigned)err_pos.col, err_msg);
+  } else {
+    snprintf(msg_full, sizeof msg_full,
+      "✓ 检查完成，程序已编译（长度 %u）", (unsigned)len);
+  }
+  status_bar(msg_full);
+
+  uiFreeText(src);
+}
+
 static void btn_check_clicked(uiButton *btn, void *_unused)
 {
+  assemble();
 }
 
 static void btn_upload_clicked(uiButton *btn, void *_unused)
@@ -728,6 +751,8 @@ static uiBox *vertical_box(int n)
 
 int main()
 {
+  mumu_as_init();
+
   uiInitOptions o = { 0 };
   const char *err = uiInit(&o);
   if (err != NULL) {

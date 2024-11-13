@@ -1,4 +1,4 @@
-// gcc as.c mumu_as.c -o as -O2
+// gcc as.c mumu_as.c -DMUMU_AS_STDIO -o as -O2
 
 #include "mumu_as.h"
 
@@ -39,7 +39,9 @@ int main(int argc, char *argv[])
   uint32_t c[65536];
   struct file_pos_t err_pos;
   char err_msg[64];
-  uint32_t len = mumu_as_assemble(c, sizeof c / sizeof c[0], &err_pos, err_msg, sizeof err_msg);
+  uint32_t len = mumu_as_assemble(
+    stdin, c, sizeof c / sizeof c[0],
+    &err_pos, err_msg, sizeof err_msg);
 
   if (format == FMT_DEFAULT) {
     for (uint32_t i = 0; i < len; i++) printf("%04" PRIx32 ": %08" PRIx32 "\n", i, c[i]);
