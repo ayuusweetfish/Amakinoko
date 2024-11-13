@@ -5,24 +5,39 @@
 #include <stdio.h>
 #endif
 
+#ifndef MUMU_TIMEOUT_CONDITION
+#define MUMU_TIMEOUT_CONDITION 0
+#endif
+
 typedef struct {
   const uint32_t *c;
   uint32_t m[MUMU_RAM_SIZE];
   uint32_t pc;
 } mumu_vm_t;
 
+enum mumu_exit_t {
+  MUMU_EXIT_SC0,
+  MUMU_EXIT_TIMEOUT,
+};
+
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 #if __arm__
 __attribute__ ((section(".RamFunc")))
 #endif
-void mumu_run(mumu_vm_t *restrict m)
+enum mumu_exit_t mumu_run(mumu_vm_t *restrict m)
 {
 #define RAM(_n) m->m[(_n) & (MUMU_RAM_SIZE - 1)]
 #define ROM(_n) m->c[(_n) & (MUMU_ROM_SIZE - 1)]
 
+  enum mumu_exit_t exit;
+
   uint32_t pc = m->pc;
   while (1) {
+    if (MUMU_TIMEOUT_CONDITION) {
+      exit = MUMU_EXIT_TIMEOUT;
+      break;
+    }
     uint32_t instr = m->c[(pc++) & (MUMU_ROM_SIZE - 1)];
   #ifdef MUMU_DEBUG
     printf("%08x | %08x %08x %08x %08x\n", instr, RAM(MUMU_DEBUG + 0), RAM(MUMU_DEBUG + 1), RAM(MUMU_DEBUG + 2), RAM(MUMU_DEBUG + 3));
@@ -150,7 +165,7 @@ void mumu_run(mumu_vm_t *restrict m)
 
     case 0x0: {
       uint32_t syscall = instr & (((uint32_t)1 << 24) - 1);
-      if (syscall == 0) goto _fin;
+      if (syscall == 0) { exit = MUMU_EXIT_SC0; goto _fin; }
       break;
     }
 
@@ -160,5 +175,6 @@ void mumu_run(mumu_vm_t *restrict m)
 
 _fin:
   m->pc = pc;
+  return exit;
 }
 #pragma GCC pop_options

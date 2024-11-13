@@ -10,6 +10,8 @@
 
 #define MUMU_ROM_SIZE 1024
 #define MUMU_RAM_SIZE 512
+static volatile bool mumu_run_timeout;
+#define MUMU_TIMEOUT_CONDITION mumu_run_timeout
 #include "../../misc/mumu/mumu.h"
 
 #define REV 2
@@ -96,8 +98,6 @@ static inline void delay_us(uint32_t us)
   spin_delay(us * 64);
 }
 
-static I2C_HandleTypeDef i2c1;
-static TIM_HandleTypeDef tim3;
 static UART_HandleTypeDef uart2;
 
 static uint8_t rx_byte;
@@ -462,9 +462,9 @@ int main()
 }
 #endif
 
-  // ======== Timer ========
+  // ======== Timer for LED output ========
   __HAL_RCC_TIM3_CLK_ENABLE();
-  tim3 = (TIM_HandleTypeDef){
+  TIM_HandleTypeDef tim3 = (TIM_HandleTypeDef){
     .Instance = TIM3,
     .Init = {
       .Prescaler = 1 - 1,
@@ -477,9 +477,26 @@ int main()
   HAL_TIM_Base_Init(&tim3);
   HAL_TIM_Base_Start(&tim3);
 
+  // ======== Timer for user program timeout ========
+  __HAL_RCC_TIM17_CLK_ENABLE();
+  TIM_HandleTypeDef tim17 = (TIM_HandleTypeDef){
+    .Instance = TIM17,
+    .Init = {
+      .Prescaler = 64000 - 1,
+      .CounterMode = TIM_COUNTERMODE_UP,
+      .Period = 5 - 1, // Per 5 milliseconds
+      .ClockDivision = TIM_CLOCKDIVISION_DIV1,
+      .RepetitionCounter = 0,
+    },
+  };
+  HAL_TIM_Base_Init(&tim17);
+  TIM17->CR1 |= TIM_CR1_OPM;
+  HAL_NVIC_SetPriority(TIM17_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(TIM17_IRQn);
+
   // ======== I2C ========
   __HAL_RCC_I2C1_CLK_ENABLE();
-  i2c1 = (I2C_HandleTypeDef){
+  I2C_HandleTypeDef i2c1 = (I2C_HandleTypeDef){
     .Instance = I2C1,
     .Init = {
       // RM0454 Rev 5, pp. 711, 726, 738 (examples), 766
@@ -645,9 +662,24 @@ if (1) {
   for (int i = 0; i < 10000; i++) {
     m.pc = 0;
     m.m[0] = 15;
-    mumu_run(&m); // 36 instructions
+
+    mumu_run_timeout = false;
+
+    // Clear timer state.
+    // Setting CNT will trigger an update event (hence update interrupt) if unmasked
+    TIM17->CR1 &= ~TIM_CR1_CEN;
+    TIM17->DIER &= ~TIM_DIER_UIE;
+    TIM17->SR = ~TIM_SR_UIF;
+    TIM17->CNT = 0;
+    TIM17->DIER |= TIM_DIER_UIE;
+    TIM17->CR1 |= TIM_CR1_CEN;
+
+    enum mumu_exit_t e = mumu_run(&m); // 36 instructions
+    if (e == MUMU_EXIT_TIMEOUT) swv_printf("timeout!\n");
+
+    TIM17->CR1 &= ~TIM_CR1_CEN;
   }
-  swv_printf("%lu\n", HAL_GetTick() - t0);  // 352 = 1M instructions per second
+  swv_printf("%lu\n", HAL_GetTick() - t0);  // 428 = 841k instructions per second
   swv_printf("%08lx\n", m.m[0]);  // 610 = 0x00000262
 }
 
@@ -1086,6 +1118,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *_uart2)
   HAL_UART_Receive_IT(&uart2, &rx_byte, 1);
 }
 
+void TIM17_IRQHandler()
+{
+  if (TIM17->SR & TIM_SR_UIF) {
+    TIM17->SR = ~TIM_SR_UIF;
+    mumu_run_timeout = true;
+  }
+}
+
 void NMI_Handler() { while (1) { } }
 void HardFault_Handler() { while (1) { } }
 void SVC_Handler() { while (1) { } }
@@ -1106,7 +1146,6 @@ void TIM1_CC_IRQHandler() { while (1) { } }
 void TIM3_IRQHandler() { while (1) { } }
 void TIM14_IRQHandler() { while (1) { } }
 void TIM16_IRQHandler() { while (1) { } }
-void TIM17_IRQHandler() { while (1) { } }
 void I2C1_IRQHandler() { while (1) { } }
 void I2C2_IRQHandler() { while (1) { } }
 void SPI1_IRQHandler() { while (1) { } }
