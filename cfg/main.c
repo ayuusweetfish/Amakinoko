@@ -96,6 +96,8 @@ struct readings_t {
 
 static bool readings_is_valid = false;
 
+static uint8_t lights[24][3] = {{ 0 }};
+
 static void clear_readings_disp()
 {
   uiLabelSetText(lbl_readings_t, "温度：— ˚C");
@@ -158,13 +160,17 @@ static void parse_continuous_rx(void *_buf)
   uint8_t len = buf[0];
   buf++;
   // 0x6*, <readings>
-  if (len == TX_READINGS_LEN + 1 && (buf[0] & 0xf0) == 0x60) {
+  if (len >= TX_READINGS_LEN + 1 && (buf[0] & 0xf0) == 0x60) {
     parse_readings((const uint8_t *)(buf + 1));
     if (buf[0] != 0x67) {
       char s[64];
       snprintf(s, sizeof s, "* 传感器数据不完整 (%u)", (unsigned)(buf[0] & 0x0f));
       status_bar(s);
     }
+
+    int n_lights = (len - (TX_READINGS_LEN + 1)) / 3;
+    if (n_lights > 24) n_lights = 24;
+    memcpy(lights, (const uint8_t *)(buf + (TX_READINGS_LEN + 1)), n_lights * 3);
   }
   free(_buf);
 }
@@ -264,13 +270,20 @@ static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
     uiDrawPathNewFigureWithArc(path, x, y, r, 0, uiPi * 2, false);
     uiDrawPathEnd(path);
 
+    double r = lights[i][0] / 255.0;
+    double g = lights[i][1] / 255.0;
+    double b = lights[i][2] / 255.0;
+    double max = (r > g ? r : g); max = (max > b ? max : b);
+    double a = 1 - (1 - r) * (1 - g) * (1 - b);
+    r /= max; g /= max; b /= max;
+
     uiDrawFill(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
-      .R = 0.1, .G = 0.1, .B = 0.1, .A = (readings_is_valid ? 0.75 : 0.2),
+      .R = r, .G = g, .B = b, .A = a * (readings_is_valid ? 0.75 : 0.2),
     });
     uiDrawStroke(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
-      .R = 0.1, .G = 0.1, .B = 0.1, .A = (readings_is_valid ? 1 : 0.25),
+      .R = r, .G = g, .B = b, .A = a * (readings_is_valid ? 1 : 0.25),
     }, &(uiDrawStrokeParams){
       .Cap = uiDrawLineCapRound,
       .Join = uiDrawLineJoinRound,

@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define MUMU_ROM_SIZE 1024
-#define MUMU_RAM_SIZE 512
+#define MUMU_RAM_SIZE 256
 static volatile bool mumu_run_timeout;
 #define MUMU_TIMEOUT_CONDITION mumu_run_timeout
 #include "../../misc/mumu/mumu.h"
@@ -100,9 +100,12 @@ static inline void delay_us(uint32_t us)
 
 static UART_HandleTypeDef uart2;
 
+#define N_LIGHTS 24
+static uint32_t lights[N_LIGHTS];
+static void run();
+
 static uint8_t rx_byte;
 
-static void run();
 static void queue_tx_flush();
 static void tx_readings_if_connected();
 
@@ -300,7 +303,7 @@ static inline uint16_t offs_clamp_16(uint32_t x, uint32_t offs)
   return (x > 0xffff ? 0xffff : x);
 }
 
-#define TX_READINGS_LEN 14
+#define TX_READINGS_LEN (14 + N_LIGHTS * 3)
 static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
 {
   buf[ 0] = (frame_n >> 8) & 0xff;
@@ -317,6 +320,12 @@ static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
   buf[11] = last_readings.c[1];
   buf[12] = last_readings.c[2];
   buf[13] = last_readings.c[3];
+
+  for (int i = 0; i < N_LIGHTS; i++) {
+    buf[14 + i * 3 + 0] = (lights[i] >> 16) & 0xff;
+    buf[14 + i * 3 + 1] = (lights[i] >>  8) & 0xff;
+    buf[14 + i * 3 + 2] = (lights[i] >>  0) & 0xff;
+  }
 }
 
 int main()
@@ -753,7 +762,6 @@ void run()
   };
   static const uint8_t seq_len = (sizeof seq) / (sizeof seq[0]);
 
-#define N 24
   static uint32_t frame = 0, frame_subdiv = 0;
   if (++frame_subdiv == 8) {
     frame_subdiv = 0;
@@ -761,8 +769,7 @@ void run()
     if (frame == seq_len /* N + 2 */) frame = 0;
   }
 
-  uint8_t buf[N][3];
-  for (int i = 0, f = frame; i < N; i++, f = (f == seq_len - 1 ? 0 : f + 1)) {
+  for (int i = 0, f = frame; i < N_LIGHTS; i++, f = (f == seq_len - 1 ? 0 : f + 1)) {
     uint8_t g = 0, r = 0, b = 0;
 
     uint8_t f1 = (f == seq_len - 1 ? 0 : f + 1);
@@ -770,22 +777,8 @@ void run()
     r = (seq[f][1] * (8 - frame_subdiv) + seq[f1][1] * frame_subdiv) + 1;
     b = (seq[f][2] * (8 - frame_subdiv) + seq[f1][2] * frame_subdiv) + 1;
 
-    buf[i][0] = g * 5;
-    buf[i][1] = r * 5;
-    buf[i][2] = b * 5;
+    lights[i] = ((r * 10) << 16) | ((g * 10) << 8) | (b * 10);
   }
-if (0) {
-  for (int i = 0; i < N; i++) {
-    buf[i][0] = buf[i][1] = buf[i][2] = 0;
-  }
-  for (int i = 0; i < N; i++) if (i >= (int)frame - 2 && i <= frame) {
-    uint8_t value = 120;
-    if (i == (int)frame - 2) value = (7 - frame_subdiv) * 15;
-    if (i == frame + 0) value = frame_subdiv * 15;
-    buf[i][0] = value >> 1;
-    buf[i][2] = value;
-  }
-}
 
   // 800 kHz = 80 cycles/bit
 
@@ -804,37 +797,38 @@ if (0) {
     HAL_NVIC_DisableIRQ(SysTick_IRQn);
     irqs_happened = false;
     TIM3->SR = ~TIM_SR_UIF;
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < N_LIGHTS; i++) {
+      uint32_t v = lights[i];
+      uint8_t g = (v >>  8) & 0xff;
+      uint8_t r = (v >> 16) & 0xff;
+      uint8_t b = (v >>  0) & 0xff;
       // G
-      uint8_t g = buf[i][0];
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 64);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 32);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 16);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 8);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 4);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 2);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & 1);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 7));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 6));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 5));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 4));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 3));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 2));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 1));
       // R
-      uint8_t r = buf[i][1];
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 64);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 32);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 16);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 8);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 4);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 2);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & 1);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 7));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 6));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 5));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 4));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 3));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 2));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 1));
       // B
-      uint8_t b = buf[i][2];
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 64);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 32);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 16);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 8);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 4);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 2);
-      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & 1);
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 7));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 6));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 5));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 4));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 3));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 2));
+      OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 1));
     }
 
     HAL_NVIC_EnableIRQ(SysTick_IRQn);
