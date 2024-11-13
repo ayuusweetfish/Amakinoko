@@ -335,10 +335,12 @@ uint32_t mumu_as_assemble(
       uint32_t _n1 = 0; \
       bool is_register = (_is_register); \
       bool hex = false; \
+      bool read_any_digit = false; \
       while (((c = my_getchar()) >= '0' && c <= '9') || \
           (hex && (c = tolower(c)) >= 'a' && c <= 'f') || \
           (!hex && _n1 == 0 && c == 'x')) { \
         if (c == 'x') { hex = true; continue; } \
+        read_any_digit = true; \
         _n1 = _n1 * (hex ? 16 : 10) + (c >= '0' && c <= '9' ? c - '0' : c - 'a' + 10); \
         uint32_t limit = (is_register ? ((uint32_t)1 << 8) : ((uint32_t)1 << 24)); \
         if (_n1 >= limit) \
@@ -346,6 +348,7 @@ uint32_t mumu_as_assemble(
             is_register ? "Register index" : "Immediate value", \
             limit - 1); \
       } \
+      if (!read_any_digit) report_error_here("Expected a number"); \
       *(_n) = _n1; \
     } while (0)
 
