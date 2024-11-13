@@ -155,9 +155,14 @@ static void parse_continuous_rx(void *_buf)
   uint8_t *buf = _buf;
   uint8_t len = buf[0];
   buf++;
-  // 0x56, <readings>
-  if (len == TX_READINGS_LEN + 1 && buf[0] == 0x56) {
+  // 0x6*, <readings>
+  if (len == TX_READINGS_LEN + 1 && (buf[0] & 0xf0) == 0x60) {
     parse_readings((const uint8_t *)(buf + 1));
+    if (buf[0] != 0x67) {
+      char s[64];
+      snprintf(s, sizeof s, "* 传感器数据不完整 (%u)", (unsigned)(buf[0] & 0x0f));
+      status_bar(s);
+    }
   }
   free(_buf);
 }

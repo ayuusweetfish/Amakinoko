@@ -290,7 +290,7 @@ struct sensors_readings {
   uint8_t c[4]; // Capacitive sensing
 };
 static struct sensors_readings last_readings;
-static bool last_readings_valid = false;
+static uint8_t last_readings_valid = 0; // Bitmask for the 3 sensors
 static uint32_t frame_n = 0;
 
 static inline uint16_t offs_clamp_16(uint32_t x, uint32_t offs)
@@ -557,16 +557,18 @@ if (0) {
     if (result != HAL_OK) swv_printf("BH1750FVI write %lu %lu\n", result, i2c1.ErrorCode);
   }
 
-  bool sensors_read(struct sensors_readings *r)
+  uint8_t sensors_read(struct sensors_readings *r)
   {
     uint32_t result;
     uint8_t buf[10];
+    uint8_t valid = 0;
 
     // LPS22HH
+    uint32_t p = 0, t1 = 0;
     result = HAL_I2C_Mem_Read(&i2c1, 0b1011100 << 1, 0x27, I2C_MEMADD_SIZE_8BIT, buf, 6, 1000);
-    if (result != HAL_OK) return false;
+    if (result != HAL_OK) goto _lps22hh_end;
     uint8_t status = buf[0] & 0x03; // STATUS should have T_DA | P_DA set
-    if (status != 0x03) return false;
+    if (status != 0x03) goto _lps22hh_end;
     uint32_t reading_p  =
       ((uint32_t)buf[1] <<  0) |
       ((uint32_t)buf[2] <<  8) |
@@ -574,20 +576,29 @@ if (0) {
     uint32_t reading_t1 =
       ((uint32_t)buf[4] <<  0) |
       ((uint32_t)buf[5] <<  8);
-    uint32_t p  = reading_p * 100 / 4096;
-    uint32_t t1 = reading_t1;
+    p  = reading_p * 100 / 4096;
+    t1 = reading_t1;
+    valid |= (1 << 0);
+    _lps22hh_end: { }
 
     // SHT30
+    uint32_t t2 = t1, h = 0;
     result = HAL_I2C_Master_Receive(&i2c1, 0b1000100 << 1, buf, 6, 1000);
+    if (result != HAL_OK) goto _sht30_end;
     uint32_t reading_t2 = (((uint32_t)buf[0] << 8) | buf[1]);
     uint32_t reading_h  = (((uint32_t)buf[3] << 8) | buf[4]);
-    uint32_t t2 = -4500 + reading_t2 * 17500 / 65535;
-    uint32_t h  = 10000 * reading_h / 65535;
+    t2 = -4500 + reading_t2 * 17500 / 65535;
+    h  = 10000 * reading_h / 65535;
+    valid |= (1 << 1);
+    _sht30_end: { }
 
     // BH1750FVI
+    uint32_t i = 0;
     result = HAL_I2C_Master_Receive(&i2c1, 0b0100011 << 1, buf, 2, 1000);
-    if (result != HAL_OK) return false;
-    uint32_t i = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
+    if (result != HAL_OK) goto _bh1750fvi_end;
+    i = ((((uint32_t)buf[0] << 8) | buf[1]) * 5 + 3) / 6;
+    valid |= (1 << 2);
+    _bh1750fvi_end: { }
 
     uint16_t cap[4];
     cap_sense(cap);
@@ -601,7 +612,8 @@ if (0) {
     r->h = offs_clamp_16(h, 0);
     r->i = offs_clamp_16(i, 0);
     for (int j = 0; j < 4; j++) r->c[j] = (cap[j] > 0xff ? 0xff : cap[j]);
-    return true;
+
+    return valid;
   }
 
 if (1) {
@@ -657,18 +669,17 @@ if (1) {
     uint32_t cur = HAL_GetTick();
     if (cur >= last_sensors_start + 20) {
       struct sensors_readings r;
-      bool valid = sensors_read(&r);
-      if (valid) {
-        sensors_start();
-        last_sensors_start = cur;
-        last_readings = r;
-        last_readings_valid = true;
-        if (cur - last_sensors_tx >= 100) {
-          tx_readings_if_connected();
-          last_sensors_tx = cur;
-        }
-      } else {
-        swv_printf("Reading invalid! Check connections\n");
+      uint8_t valid_flags = sensors_read(&r);
+      if (valid_flags != 0b111) {
+        swv_printf("Reading invalid (%u)! Check connections\n", (unsigned)valid_flags);
+      }
+      sensors_start();
+      last_sensors_start = cur;
+      last_readings = r;
+      last_readings_valid = valid_flags;
+      if (cur - last_sensors_tx >= 100) {
+        tx_readings_if_connected();
+        last_sensors_tx = cur;
       }
     }
     while ((cur = HAL_GetTick()) - tick < 10) {
@@ -803,6 +814,8 @@ if (0) {
 /*
   0xAA - ask
     0x55 - acknowledgement
+
+    0x6* - readings
 
   0xBB - bye
 
@@ -1052,7 +1065,7 @@ void tx_readings_if_connected()
   uint8_t readings_buf[TX_READINGS_LEN];
   fill_tx_readings(readings_buf);
   HAL_UART_Transmit(&uart2, (uint8_t []){ TX_READINGS_LEN + 1 }, 1, HAL_MAX_DELAY);
-  HAL_UART_Transmit(&uart2, (uint8_t []){ 0x56 }, 1, HAL_MAX_DELAY);
+  HAL_UART_Transmit(&uart2, (uint8_t []){ 0x60 | last_readings_valid }, 1, HAL_MAX_DELAY);
   HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
 }
 
