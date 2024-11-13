@@ -153,14 +153,17 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uiAreaQueueRedrawAll(area_lights);
 }
 
+// 0x6*, <readings> (TX_READINGS_LEN), <lights> (RGB8, N*3)
+#define IS_PACKET_READINGS(_len, _buf) \
+  ((_len) >= TX_READINGS_LEN + 1 && ((_buf)[0] & 0xf0) == 0x60)
+
 // buf[0] is length; buf[1..=length] is payload
 static void parse_continuous_rx(void *_buf)
 {
   uint8_t *buf = _buf;
   uint8_t len = buf[0];
   buf++;
-  // 0x6*, <readings>
-  if (len >= TX_READINGS_LEN + 1 && (buf[0] & 0xf0) == 0x60) {
+  if (IS_PACKET_READINGS(len, buf)) {
     parse_readings((const uint8_t *)(buf + 1));
     if (buf[0] != 0x67) {
       char s[64];
@@ -274,8 +277,8 @@ static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
     double g = lights[i][1] / 255.0;
     double b = lights[i][2] / 255.0;
     double max = (r > g ? r : g); max = (max > b ? max : b);
-    double a = 1 - (1 - r) * (1 - g) * (1 - b);
-    r /= max; g /= max; b /= max;
+    double a = 1 - (1 - r) * (1 - g) * (1 - b) * 0.75;
+    if (max > 0) { r /= max; g /= max; b /= max; }
 
     uiDrawFill(p->Context, path, &(uiDrawBrush){
       .Type = uiDrawBrushTypeSolid,
@@ -422,8 +425,7 @@ static inline int thread_rx()
   int len;
   while (true) {
     len = rx_timeout(rx_buf, 10);
-    // XXX: Reduce duplication?
-    if (len == TX_READINGS_LEN + 1 && rx_buf[0] == 0x56) {
+    if (IS_PACKET_READINGS(len, rx_buf)) {
       parse_readings((const uint8_t *)(rx_buf + 1));
     } else {
       return len;

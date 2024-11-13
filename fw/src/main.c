@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define MUMU_ROM_SIZE 1024
-#define MUMU_RAM_SIZE 256
+#define MUMU_RAM_SIZE 512
 static volatile bool mumu_run_timeout;
 #define MUMU_TIMEOUT_CONDITION mumu_run_timeout
 #include "../../misc/mumu/mumu.h"
@@ -101,8 +101,9 @@ static inline void delay_us(uint32_t us)
 static UART_HandleTypeDef uart2;
 
 #define N_LIGHTS 24
-static uint32_t lights[N_LIGHTS];
-static void run();
+static mumu_vm_t m = { 0 };
+static uint32_t *const lights = m.m + 256;
+static void output_lights();
 
 static uint8_t rx_byte;
 
@@ -642,35 +643,23 @@ if (0) {
     return valid;
   }
 
-if (1) {
-  static mumu_vm_t m;
+  HAL_GPIO_WritePin(LED_OUT_PORT, LED_OUT_PIN, 1);
+  HAL_GPIO_Init(LED_OUT_PORT, &(GPIO_InitTypeDef){
+    .Pin = LED_OUT_PIN,
+    .Mode = GPIO_MODE_OUTPUT_PP,
+    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
+  });
 
-  static const uint32_t c[] = {
-    0x30010000, // movi 1, 0
-    0x30020001, // movi 2, 1
-    0x30040001, // movi 4, 1
-    0x30050000, // movi 5, 0
-    0x86000404, // brile 0, 4, Bf
-                // A:
-    0x11010102, // add 1, 2
-    0x11020201, // add 2, 1
-    0x32000002, // subi 0, 2
-    0x830004fc, // brigt 0, 4, Ab
-                // B:
-    0x81000502, // brie 0, 5, Cf
-    0x10000202, // mov 0, 2
-    0x00000000, // sc 0
-                // C:
-    0x10000101, // mov 0, 1
-    0x00000000, // sc 0
-  };
+  sensors_start();
 
-  swv_printf("running!\n");
-  m.c = c;
-  uint32_t t0 = HAL_GetTick();
-  for (int i = 0; i < 10000; i++) {
+  m.c = STORAGE_ROM_START;
+
+  uint32_t tick = HAL_GetTick();
+  uint32_t last_sensors_start = tick;
+  uint32_t last_sensors_tx = tick - 1000;
+  while (1) {
+    // Run Mumu VM
     m.pc = 0;
-    m.m[0] = 15;
 
     mumu_run_timeout = false;
 
@@ -687,25 +676,9 @@ if (1) {
     if (e == MUMU_EXIT_TIMEOUT) swv_printf("timeout!\n");
 
     TIM17->CR1 &= ~TIM_CR1_CEN;
-  }
-  swv_printf("%lu\n", HAL_GetTick() - t0);  // 428 = 841k instructions per second
-  swv_printf("%08lx\n", m.m[0]);  // 610 = 0x00000262
-}
 
-  HAL_GPIO_WritePin(LED_OUT_PORT, LED_OUT_PIN, 1);
-  HAL_GPIO_Init(LED_OUT_PORT, &(GPIO_InitTypeDef){
-    .Pin = LED_OUT_PIN,
-    .Mode = GPIO_MODE_OUTPUT_PP,
-    .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
-  });
-
-  sensors_start();
-
-  uint32_t tick = HAL_GetTick();
-  uint32_t last_sensors_start = tick;
-  uint32_t last_sensors_tx = tick - 1000;
-  while (1) {
-    run();
+    // Write lights to output
+    output_lights();
 
     uint32_t cur = HAL_GetTick();
     if (cur >= last_sensors_start + 20) {
@@ -745,8 +718,9 @@ if (1) {
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 __attribute__ ((section(".RamFunc")))
-void run()
+void output_lights()
 {
+if (0) {
   frame_n++;
 
   static const uint8_t seq[9][3] = {
@@ -779,6 +753,7 @@ void run()
 
     lights[i] = ((r * 10) << 16) | ((g * 10) << 8) | (b * 10);
   }
+}
 
   // 800 kHz = 80 cycles/bit
 
@@ -1035,6 +1010,8 @@ static void serial_rx_process_byte(uint8_t c)
         if (rx_flash_ptr == rx_src_len) {
           rx_flash = 0;
           queue_tx(QUEUE_TX_FLASH_CRC);
+          // Reset Mumu RAM
+          memset(m.m, 0, sizeof m.m);
         }
       }
     }

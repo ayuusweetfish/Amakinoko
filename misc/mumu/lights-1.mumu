@@ -4,10 +4,10 @@
 
 L:  # Loop
   add %14, =1
-  brne %14, =2, Ff
+  brne %14, =100, Ff
   mov %14, =0
 
-  mov %8, =64
+  mov %8, =256
   ld %9, %8
   xor %9, =0xFFFF
   st %9, %8
@@ -18,10 +18,11 @@ F:  # Finish
 I:  # Initialise
   # Fill 24 lights with 0x66ccff
   mov %9, =0
+  mov %10, =256
   mov %11, =0xccfF
   add %11, =0x660000
 A:
-  add %12, %9, =64
+  add %12, %9, %10
   st %11, %12
   add %9, =1
   brlt %9, =24, Ab
