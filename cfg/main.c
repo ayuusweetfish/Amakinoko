@@ -133,11 +133,11 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   readings_is_valid = true;
 
   char s[64];
-  snprintf(s, sizeof s, "温度：%.2f ˚C", last_readings.t);
+  snprintf(s, sizeof s, "温度：%.1f ˚C", last_readings.t);
   uiLabelSetText(lbl_readings_t, s);
-  snprintf(s, sizeof s, "气压：%.2f hPa", last_readings.p);
+  snprintf(s, sizeof s, "气压：%.1f hPa", last_readings.p);
   uiLabelSetText(lbl_readings_p, s);
-  snprintf(s, sizeof s, "湿度：%.2f%% RH", last_readings.h);
+  snprintf(s, sizeof s, "湿度：%.1f%% RH", last_readings.h);
   uiLabelSetText(lbl_readings_h, s);
   snprintf(s, sizeof s, "光照：%d lx", last_readings.i);
   uiLabelSetText(lbl_readings_i, s);
@@ -388,7 +388,7 @@ static inline int tx(const uint8_t *buf, uint16_t len)
   return len;
 }
 
-static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
+static inline int rx_timeout(uint8_t *buf, uint32_t max_len, unsigned initial_timeout)
 {
   int n_rx;
   uint32_t len = 0;
@@ -407,8 +407,21 @@ static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
 
   fprintf(stderr, "rx [%02x]", len);
   if (len > 0) {
-    n_rx = sp_blocking_read(port, buf, len, 50);
-    ensure_or_ret(-1, n_rx == len, "Did not receive packet payload");
+    uint32_t saved_len = (len <= max_len ? len : max_len);
+    n_rx = sp_blocking_read(port, buf, saved_len, 50);
+    ensure_or_ret(-1, n_rx == saved_len, "Did not receive packet payload");
+    if (len > max_len) {
+      uint8_t extra_buf[1024];
+      uint32_t p = saved_len;
+      do {
+        uint32_t block_size = sizeof extra_buf;
+        if (block_size > len - p) block_size = len - p;
+        n_rx = sp_blocking_read(port, extra_buf, block_size, 50);
+        ensure_or_ret(-1, n_rx == block_size, "Did not receive packet payload");
+        p += block_size;
+      } while (p < max_len);
+      len = max_len;  // Return number of actual saved bytes instead
+    }
     for (int i = 0; i < n_rx && i < 32; i++) fprintf(stderr, " %02x", (int)buf[i]);
     if (n_rx > 32) fprintf(stderr, "...");
   }
@@ -418,13 +431,13 @@ static inline int rx_timeout(uint8_t *buf, unsigned initial_timeout)
 }
 
 static uint8_t rx_buf[256];
-static inline int rx() { return rx_timeout(rx_buf, 10); }
+static inline int rx() { return rx_timeout(rx_buf, sizeof rx_buf, 10); }
 
 static inline int thread_rx()
 {
   int len;
   while (true) {
-    len = rx_timeout(rx_buf, 10);
+    len = rx_timeout(rx_buf, sizeof rx_buf, 10);
     if (IS_PACKET_READINGS(len, rx_buf)) {
       parse_readings((const uint8_t *)(rx_buf + 1));
     } else {
@@ -447,7 +460,7 @@ static void *serial_loop_fn(void *_unused)
       usleep(20000);
       continue;
     }
-    int len = rx_timeout(buf, 50);
+    int len = rx_timeout(buf, sizeof buf, 50);
     if (len != -1) {
       uint8_t *buf_dup = malloc(len + 1);
       if (buf_dup != NULL) {
@@ -601,12 +614,12 @@ static void conn()
     ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
     parse_readings(rx_buf + 11);
 
-    rx_len = rx_timeout(mumu_bin, 10);
+    rx_len = rx_timeout(mumu_bin, sizeof mumu_bin, 10);
     if (rx_len < 0) continue;
     mumu_bin_len = rx_len;
     printf("received %d bytes binary\n", rx_len);
 
-    rx_len = rx_timeout(mumu_src, 10);
+    rx_len = rx_timeout(mumu_src, sizeof mumu_src, 10);
     if (rx_len < 0) continue;
     mumu_src_len = rx_len;
     printf("received %d bytes source\n", rx_len);
