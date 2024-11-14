@@ -494,7 +494,7 @@ int main()
     .Init = {
       .Prescaler = 64000 - 1,
       .CounterMode = TIM_COUNTERMODE_UP,
-      .Period = 5 - 1, // Per 5 milliseconds
+      .Period = 6 - 1, // Per 6 milliseconds
       .ClockDivision = TIM_CLOCKDIVISION_DIV1,
       .RepetitionCounter = 0,
     },
@@ -503,6 +503,7 @@ int main()
   TIM17->CR1 |= TIM_CR1_OPM;
   HAL_NVIC_SetPriority(TIM17_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(TIM17_IRQn);
+  __HAL_RCC_TIM17_CLK_DISABLE();
 
   // ======== I2C ========
   __HAL_RCC_I2C1_CLK_ENABLE();
@@ -664,6 +665,15 @@ if (0) {
 
     mumu_run_timeout = false;
 
+    // Provide readings in the lowest registers
+    m.m[0] = last_readings.t;
+    m.m[1] = last_readings.p;
+    m.m[2] = last_readings.h;
+    m.m[3] = last_readings.i;
+    for (int i = 0; i < 4; i++)
+      m.m[4 + i] = last_readings.c[i];
+
+    __HAL_RCC_TIM17_CLK_ENABLE();
     // Clear timer state.
     // Setting CNT will trigger an update event (hence update interrupt) if unmasked
     TIM17->CR1 &= ~TIM_CR1_CEN;
@@ -674,9 +684,23 @@ if (0) {
     TIM17->CR1 |= TIM_CR1_CEN;
 
     enum mumu_exit_t e = mumu_run(&m); // 36 instructions
-    if (e == MUMU_EXIT_TIMEOUT) swv_printf("timeout!\n");
 
     TIM17->CR1 &= ~TIM_CR1_CEN;
+    __HAL_RCC_TIM17_CLK_DISABLE();
+
+    if (e == MUMU_EXIT_TIMEOUT) {
+      swv_printf("timeout!\n");
+      for (int i = 0; i < N_LIGHTS; i++) {
+        uint8_t phase = (i * 8 + frame_n) % 64;
+        static const uint8_t lut[64] = {
+          // from math import sin, pi, sqrt; print(', '.join('%d' % round(20 * sqrt(2 + sin(i/64.0 * pi*2))) for i in range(64)))
+          28, 29, 30, 30, 31, 31, 32, 32, 33, 33, 34, 34, 34, 34, 35, 35, 35, 35, 35, 34, 34, 34, 34, 33, 33, 32, 32, 31, 31, 30, 30, 29, 28, 28, 27, 26, 25, 25, 24, 23, 23, 22, 22, 21, 21, 20, 20, 20, 20, 20, 20, 20, 21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 27, 28
+        };
+        lights[i] = (0x28 << 16) | ((uint32_t)lut[phase] << 8);
+      }
+    }
+
+    frame_n++;
 
     // Write lights to output
     output_lights();
