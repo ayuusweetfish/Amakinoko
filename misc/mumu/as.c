@@ -9,7 +9,8 @@
 
 static void print_usage_and_exit(const char *prog_name)
 {
-  fprintf(stderr, "Usage: %s [-c]\n", prog_name ? prog_name : "<prog-name>");
+  fprintf(stderr, "Usage: %s [-b|-c]\n", prog_name ? prog_name : "<prog-name>");
+  fprintf(stderr, "  -b   Output instructions in binary (little-endian)\n");
   fprintf(stderr, "  -c   Print instructions in C style (0x........)\n");
   exit(1);
 }
@@ -18,12 +19,16 @@ int main(int argc, char *argv[])
 {
   enum {
     FMT_DEFAULT,
+    FMT_BIN,
     FMT_C,
   } format = FMT_DEFAULT;
 
   int opt;
-  while ((opt = getopt(argc, argv, "ch")) != -1) {
+  while ((opt = getopt(argc, argv, "bch")) != -1) {
     switch (opt) {
+    case 'b':
+      format = FMT_BIN;
+      break;
     case 'c':
       format = FMT_C;
       break;
@@ -45,6 +50,13 @@ int main(int argc, char *argv[])
 
   if (format == FMT_DEFAULT) {
     for (uint32_t i = 0; i < len; i++) printf("%04" PRIx32 ": %08" PRIx32 "\n", i, c[i]);
+  } else if (format == FMT_BIN) {
+    for (uint32_t i = 0; i < len; i++) {
+      putchar((c[i] >>  0) & 0xff);
+      putchar((c[i] >>  8) & 0xff);
+      putchar((c[i] >> 16) & 0xff);
+      putchar((c[i] >> 24) & 0xff);
+    }
   } else if (format == FMT_C) {
     for (uint32_t i = 0; i < len; i++) printf("    0x%08" PRIx32 ",\n", c[i]);
   }
