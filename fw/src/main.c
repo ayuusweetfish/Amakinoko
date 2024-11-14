@@ -1027,6 +1027,7 @@ static void serial_rx_process_byte(uint8_t c)
           queue_tx(QUEUE_TX_FLASH_CRC);
           // Reset Mumu RAM
           memset(m.m, 0, sizeof m.m);
+          m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
           timeout_cooldown = 0;
         }
       }
