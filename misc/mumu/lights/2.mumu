@@ -6,28 +6,46 @@
 
   mov %24, =0
   # Shift lights by one
-  # For %16 in 24 ~ 0 (inclusive)
-  mov %16, =24
+  # For %16 in 72 ~ 0 (inclusive)
+  mov %16, =72
 L:
   ld %17, %16, =128
-  st %17, %16, =129
-  sub %16, =1
-  brlt %16, =24, Lb
+  ld %18, %16, =129
+  ld %19, %16, =130
+  st %17, %16, =131
+  st %18, %16, =132
+  st %19, %16, =133
+  sub %16, =3
+  brlt %16, =72, Lb
 
-  mov %17, =0x8000
-  mov %18, =0
-  st %17, %18, =128
+  mov %18, =128
+  mov %17, =0x00
+  st %17, %18, =0
+  mov %17, =0x80
+  st %17, %18, =1
+  mov %17, =0x00
+  st %17, %18, =2
 
 M:
 
-  # Move lights buffer to output
+  # Write lights buffer to output
   mov %16, =0
+  mov %17, =0
   mov %18, =256
 L:
-  ld %17, %16, =128
+  ld %20, %17, =128   # R
+  lsl %21, %20, =16
+  ld %20, %17, =129   # G
+  lsl %20, =8
+  or %21, %20
+  ld %20, %17, =130   # B
+  or %21, %20
+
   add %19, %16, %18   # Maybe optimise the instruction set
-  st %17, %19
+  st %21, %19
+
   add %16, =1
+  add %17, =3
   brlt %16, =24, Lb
 
   sc =0
