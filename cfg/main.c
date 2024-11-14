@@ -12,6 +12,8 @@
 
 #include "mumu_as.h"
 
+static bool dump_data = false;
+
 static uiWindow *w;
 
 static int on_should_quit(void *_unused)
@@ -369,7 +371,7 @@ static bool close_port()
     if (pthread_kill(serial_loop_thr, 0) == 0)  // Is valid thread?
       ensure_or_clear(0, pthread_join(serial_loop_thr, NULL));
     ensure_or_clear(SP_OK, sp_close(saved_port));
-    fprintf(stderr, "Serial port closed\n");
+    if (dump_data) fprintf(stderr, "Serial port closed\n");
   }
   return true;
 }
@@ -404,10 +406,12 @@ static inline int tx(const uint8_t *buf, uint16_t len)
   n_tx = sp_blocking_write(port, buf, len, 10);
   ensure_or_ret(-1, n_tx == len, "Cannot write to port");
 
-  fprintf(stderr, "tx [%02x]", (unsigned)len);
-  for (int i = 0; i < len && i < 32; i++) fprintf(stderr, " %02x", (unsigned)buf[i]);
-  if (n_tx > 32) fprintf(stderr, "...");
-  fprintf(stderr, "\n");
+  if (dump_data) {
+    fprintf(stderr, "tx [%02x]", (unsigned)len);
+    for (int i = 0; i < len && i < 32; i++) fprintf(stderr, " %02x", (unsigned)buf[i]);
+    if (n_tx > 32) fprintf(stderr, "...");
+    fprintf(stderr, "\n");
+  }
 
   return len;
 }
@@ -429,7 +433,7 @@ static inline int rx_timeout(uint8_t *buf, uint32_t max_len, unsigned initial_ti
     len |= len_byte;
   }
 
-  fprintf(stderr, "rx [%02x]", len);
+  if (dump_data) fprintf(stderr, "rx [%02x]", len);
   if (len > 0) {
     uint32_t saved_len = (len <= max_len ? len : max_len);
     n_rx = sp_blocking_read(port, buf, saved_len, 50);
@@ -446,10 +450,12 @@ static inline int rx_timeout(uint8_t *buf, uint32_t max_len, unsigned initial_ti
       } while (p < max_len);
       len = max_len;  // Return number of actual saved bytes instead
     }
-    for (int i = 0; i < n_rx && i < 32; i++) fprintf(stderr, " %02x", (int)buf[i]);
-    if (n_rx > 32) fprintf(stderr, "...");
+    if (dump_data) {
+      for (int i = 0; i < n_rx && i < 32; i++) fprintf(stderr, " %02x", (int)buf[i]);
+      if (n_rx > 32) fprintf(stderr, "...");
+    }
   }
-  fprintf(stderr, "\n");
+  if (dump_data) fprintf(stderr, "\n");
 
   return len;
 }
@@ -633,7 +639,7 @@ static void conn()
       memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
     uint8_t revision = rx_buf[10];
     ensure_or_reject(revision == 0x20, "Invalid device revision 0x%02x", (unsigned)revision);
-    printf("Device revision 0x%02x\n", (unsigned)revision);
+    if (dump_data) fprintf(stderr, "Device revision 0x%02x\n", (unsigned)revision);
 
     ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
     parse_readings(rx_buf + 11);
@@ -641,12 +647,12 @@ static void conn()
     rx_len = rx_timeout(mumu_bin, sizeof mumu_bin, 10);
     if (rx_len < 0) continue;
     mumu_bin_len = rx_len;
-    printf("received %d bytes binary\n", rx_len);
+    if (dump_data) fprintf(stderr, "received %d bytes binary\n", rx_len);
 
     rx_len = rx_timeout(mumu_src, sizeof mumu_src, 10);
     if (rx_len < 0) continue;
     mumu_src_len = rx_len;
-    printf("received %d bytes source\n", rx_len);
+    if (dump_data) fprintf(stderr, "received %d bytes source\n", rx_len);
     mumu_src[mumu_src_len] = '\0';
     for (int i = 0; i < mumu_src_len; i++)
       if ((mumu_src[i] < 32 || mumu_src[i] > 126) && mumu_src[i] != '\n')
@@ -816,8 +822,10 @@ static uiBox *vertical_box(int n)
   return box;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+  if (argc >= 2 && strcmp(argv[1], "-d") == 0) dump_data = true;
+
   mumu_as_init();
 
   uiInitOptions o = { 0 };
