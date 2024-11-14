@@ -103,6 +103,7 @@ static UART_HandleTypeDef uart2;
 #define N_LIGHTS 24
 static mumu_vm_t m = { 0 };
 static uint32_t *const lights = m.m + 256;
+static uint8_t timeout_cooldown = 0;
 static void output_lights();
 
 static uint8_t rx_byte;
@@ -304,7 +305,7 @@ static inline uint16_t offs_clamp_16(uint32_t x, uint32_t offs)
   return (x > 0xffff ? 0xffff : x);
 }
 
-#define TX_READINGS_LEN (14 + N_LIGHTS * 3)
+#define TX_READINGS_LEN (14 + 1 + N_LIGHTS * 3)
 static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
 {
   buf[ 0] = (frame_n >> 8) & 0xff;
@@ -322,10 +323,12 @@ static void fill_tx_readings(uint8_t buf[TX_READINGS_LEN])
   buf[12] = last_readings.c[2];
   buf[13] = last_readings.c[3];
 
+  buf[14] = last_readings_valid | (timeout_cooldown > 0 ? 0x10 : 0x00);
+
   for (int i = 0; i < N_LIGHTS; i++) {
-    buf[14 + i * 3 + 0] = (lights[i] >> 16) & 0xff;
-    buf[14 + i * 3 + 1] = (lights[i] >>  8) & 0xff;
-    buf[14 + i * 3 + 2] = (lights[i] >>  0) & 0xff;
+    buf[14 + 1 + i * 3 + 0] = (lights[i] >> 16) & 0xff;
+    buf[14 + 1 + i * 3 + 1] = (lights[i] >>  8) & 0xff;
+    buf[14 + 1 + i * 3 + 2] = (lights[i] >>  0) & 0xff;
   }
 }
 
@@ -690,6 +693,9 @@ if (0) {
 
     if (e == MUMU_EXIT_TIMEOUT) {
       swv_printf("timeout!\n");
+      timeout_cooldown = 200;
+    }
+    if (timeout_cooldown > 0) {
       for (int i = 0; i < N_LIGHTS; i++) {
         uint8_t phase = (i * 8 + frame_n) % 64;
         static const uint8_t lut[64] = {
@@ -698,6 +704,7 @@ if (0) {
         };
         lights[i] = (0x28 << 16) | ((uint32_t)lut[phase] << 8);
       }
+      timeout_cooldown--;
     }
 
     frame_n++;
@@ -841,7 +848,7 @@ if (0) {
   0xAA - ask
     0x55 - acknowledgement
 
-    0x6* - readings
+    0x56 - readings
 
   0xBB - bye
 
@@ -1037,6 +1044,7 @@ static void serial_rx_process_byte(uint8_t c)
           queue_tx(QUEUE_TX_FLASH_CRC);
           // Reset Mumu RAM
           memset(m.m, 0, sizeof m.m);
+          timeout_cooldown = 0;
         }
       }
     }
@@ -1093,7 +1101,7 @@ void tx_readings_if_connected()
   uint8_t readings_buf[TX_READINGS_LEN];
   fill_tx_readings(readings_buf);
   HAL_UART_Transmit(&uart2, (uint8_t []){ TX_READINGS_LEN + 1 }, 1, HAL_MAX_DELAY);
-  HAL_UART_Transmit(&uart2, (uint8_t []){ 0x60 | last_readings_valid }, 1, HAL_MAX_DELAY);
+  HAL_UART_Transmit(&uart2, (uint8_t []){ 0x56 }, 1, HAL_MAX_DELAY);
   HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
 }
 

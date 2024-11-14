@@ -168,9 +168,9 @@ static void parse_readings(const uint8_t buf[TX_READINGS_LEN])
   uiAreaQueueRedrawAll(area_lights);
 }
 
-// 0x6*, <readings> (TX_READINGS_LEN), <lights> (RGB8, N*3)
+// 0x56, <readings> (TX_READINGS_LEN), <status>, <lights> (RGB8, N*3)
 #define IS_PACKET_READINGS(_len, _buf) \
-  ((_len) >= TX_READINGS_LEN + 1 && ((_buf)[0] & 0xf0) == 0x60)
+  ((_len) >= TX_READINGS_LEN + 2 && (_buf)[0] == 0x56)
 
 // buf[0] is length; buf[1..=length] is payload
 static void parse_continuous_rx(void *_buf)
@@ -180,15 +180,24 @@ static void parse_continuous_rx(void *_buf)
   buf++;
   if (IS_PACKET_READINGS(len, buf)) {
     parse_readings((const uint8_t *)(buf + 1));
-    if (buf[0] != 0x67) {
-      char s[64];
-      snprintf(s, sizeof s, "* 传感器数据不完整 (%u)", (unsigned)(buf[0] & 0x0f));
-      status_bar(s);
-    }
 
-    int n_lights = (len - (TX_READINGS_LEN + 1)) / 3;
+    uint8_t readings_valid_mask = buf[TX_READINGS_LEN + 1] & 0x0f;
+    bool timeout = (buf[TX_READINGS_LEN + 1] & 0x10) != 0;
+    char s[64];
+    s[0] = '\0';
+    if (timeout) {
+      strcpy(s, "* 程序超时");
+    }
+    if (readings_valid_mask != 0x07) {
+      int len = strlen(s);
+      snprintf(s + len, sizeof s - len, "%s传感器数据不完整 (%u)",
+        len == 0 ? "* " : " / ", (unsigned)readings_valid_mask);
+    }
+    if (s[0] != '\0') status_bar(s);
+
+    int n_lights = (len - (TX_READINGS_LEN + 2)) / 3;
     if (n_lights > 24) n_lights = 24;
-    memcpy(lights, (const uint8_t *)(buf + (TX_READINGS_LEN + 1)), n_lights * 3);
+    memcpy(lights, (const uint8_t *)(buf + (TX_READINGS_LEN + 2)), n_lights * 3);
   }
   free(_buf);
 }
