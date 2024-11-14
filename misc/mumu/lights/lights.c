@@ -1,9 +1,12 @@
+// gcc lights.c -I.. -O2 -o lights
+// ../as -b < 1.mumu | ./lights
+
 #define MUMU_ROM_SIZE 1024
 #define MUMU_RAM_SIZE 512
 #include "mumu.h"
 
 #include <stdio.h>
-#include <time.h>
+#include <string.h>
 
 int main(int argc, char *argv[])
 {
@@ -27,7 +30,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < 4; i++) {
       int c = fgetc(f);
       if (c == EOF) {
-        if (i == 0) break;
+        if (i == 0) goto fin_rom;
         else {
           printf("ROM size must be a multiple of 4 bytes (32 bits); actual %d\n", len);
           return 1;
@@ -36,6 +39,11 @@ int main(int argc, char *argv[])
       w |= ((uint32_t)(uint8_t)c) << (i * 8);
     }
     c[len] = w;
+  }
+fin_rom:
+  if (len == 0) {
+    printf("ROM empty?\n");
+    return 1;
   }
   if (len == MUMU_ROM_SIZE && !feof(f)) {
     printf("ROM size limit exceeded; limit %d words (%d bytes)\n", MUMU_ROM_SIZE, MUMU_ROM_SIZE * 4);
@@ -47,6 +55,8 @@ int main(int argc, char *argv[])
   }
   fclose(f);
 
+  memset(c + len, 0xff, sizeof c - len * sizeof c[0]);
+
   m.c = c;
   m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
 
@@ -56,6 +66,7 @@ int main(int argc, char *argv[])
     printf("%3d | ", i);
     for (int j = 0; j < 24; j++)
       printf("%06x%c", m.m[256 + j] & 0xffffff, j == 23 ? '\n' : ' ');
+    if (m.m[MUMU_RAM_SIZE - 1] != MUMU_RAM_SIZE - 1) printf("*** Stack residue? ***\n");
   }
 
   return 0;

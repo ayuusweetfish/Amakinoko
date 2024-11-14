@@ -653,6 +653,7 @@ if (0) {
   sensors_start();
 
   m.c = STORAGE_ROM_START;
+  m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
 
   uint32_t tick = HAL_GetTick();
   uint32_t last_sensors_start = tick;
