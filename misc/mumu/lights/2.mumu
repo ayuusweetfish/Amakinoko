@@ -1,10 +1,10 @@
   # 128 ~ 128+24: Lights (25 elements)
 
   # Subdivided frame
-  add %24, =1
-  brne %24, =8, Mf
+  add %48, =1
+  brne %48, =8, Mf
 
-  mov %24, =0
+  mov %48, =0
   # Shift lights by one
   # For %16 in 72 ~ 0 (inclusive)
   mov %16, =72
@@ -33,15 +33,39 @@ M:
   mov %17, =0
   mov %18, =256
 L:
-  ld %20, %17, =128   # R
-  lsl %21, %20, =16
-  ld %20, %17, =129   # G
-  lsl %20, =8
-  or %21, %20
-  ld %20, %17, =130   # B
-  or %21, %20
+  ld %20, %17, =128   # R1
+  ld %21, %17, =129   # G1
+  ld %22, %17, =130   # B1
+  ld %23, %17, =131   # R2
+  ld %24, %17, =132   # G2
+  ld %25, %17, =133   # B2
 
-  st %21, %16, %18
+  # R = (R1 * div + R2 * (8 - div)), etc.
+  mov %26, =8
+  sub %26, %48  # 8 - div
+
+  mul %27, %20, %48
+  mul %28, %23, %26
+  add %20, %27, %28
+  lsr %20, =3
+
+  mul %27, %21, %48
+  mul %28, %24, %26
+  add %21, %27, %28
+  lsr %21, =3
+
+  mul %27, %22, %48
+  mul %28, %25, %26
+  add %22, %27, %28
+  lsr %22, =3
+
+  # Combine into a single value and write to output area
+  lsl %20, =16
+  lsl %21, =8
+  or %20, %21
+  or %20, %22
+
+  st %20, %16, %18
 
   add %16, =1
   add %17, =3

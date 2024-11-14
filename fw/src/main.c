@@ -538,24 +538,6 @@ int main()
   }
   swv_printf("data end = 0x%08lx, storage start = 0x%08lx, page = %u\n",
     FW_END_ADDR, STORAGE_START_ADDR, FLASH_PAGE_SIZE);
-if (0) {
-  __attribute__ ((aligned(8)))
-  static uint8_t data[257];
-  memcpy(data, (const uint8_t []){0x4a, 0x30, 0x20, 0x10, 0x55, 0xaa, 0x55, 0xaa, 0x77}, 9);
-  storage_write(0, data);
-  memset(data, 0, 256);
-  storage_write(256, data);
-  storage_write(512, data);
-  storage_write(768, data);
-  for (uint32_t w = 1024; w < 3840; w += 256) {
-    for (uint32_t i = 0; i < 16; i++)
-      snprintf((char *)(data + i * 16), 17, "test - %08lx\n", w + (i * 16));
-    storage_write(w, data);
-  }
-  data[252] = 0x09; data[253] = 0x00; // 9 bytes
-  data[254] = 0xa4; data[255] = 0x06; // 1700 bytes
-  storage_write(3840, data);
-}
 
   bool check_device_ready(uint8_t addr, const char *name)
   {
