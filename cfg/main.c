@@ -66,17 +66,32 @@ static uiMultilineEntry *text_source;
 static uiButton *btn_check, *btn_upload;
 static uiLabel *lbl_status_bar;
 
+static int expanded_height;
+static inline void fold_program()
+{
+  uiButtonSetText(btn_show_program, "▷ 程序");
+  uiControlHide(uiControl(box_program));
+  uiControlShow(uiControl(box_fill));
+
+  int width, height;
+  uiWindowContentSize(w, &width, &height);
+  expanded_height = height;
+  uiWindowSetContentSize(w, width, 0);
+}
+static inline void expand_program()
+{
+  uiButtonSetText(btn_show_program, "▽ 程序");
+  uiControlShow(uiControl(box_program));
+  uiControlHide(uiControl(box_fill));
+
+  int width, height;
+  uiWindowContentSize(w, &width, &height);
+  uiWindowSetContentSize(w, width, expanded_height);
+}
 static inline void btn_show_program_clicked(uiButton *btn, void *_unused)
 {
-  if (!uiControlVisible(uiControl(box_program))) {
-    uiButtonSetText(btn_show_program, "▽ 程序");
-    uiControlShow(uiControl(box_program));
-    uiControlHide(uiControl(box_fill));
-  } else {
-    uiButtonSetText(btn_show_program, "▷ 程序");
-    uiControlHide(uiControl(box_program));
-    uiControlShow(uiControl(box_fill));
-  }
+  if (uiControlVisible(uiControl(box_program))) fold_program();
+  else expand_program();
 }
 
 static inline void clear_status_bar()
@@ -928,6 +943,8 @@ int main()
   uiBoxAppend(box_main, uiControl(box_fill), true);
 
   clear_readings_disp();
+  fold_program();
+  expanded_height = 600;
 
   // Run main loop
   uiWindowOnClosing(w, window_on_closing, NULL);
