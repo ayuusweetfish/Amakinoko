@@ -1,0 +1,33 @@
+  # 128 ~ 128+24: Lights (25 elements)
+
+  # Subdivided frame
+  add %24, =1
+  brne %24, =8, Mf
+
+  mov %24, =0
+  # Shift lights by one
+  # For %16 in 24 ~ 0 (inclusive)
+  mov %16, =24
+L:
+  ld %17, %16, =128
+  st %17, %16, =129
+  sub %16, =1
+  brlt %16, =24, Lb
+
+  mov %17, =0x8000
+  mov %18, =0
+  st %17, %18, =128
+
+M:
+
+  # Move lights buffer to output
+  mov %16, =0
+  mov %18, =256
+L:
+  ld %17, %16, =128
+  add %19, %16, %18   # Maybe optimise the instruction set
+  st %17, %19
+  add %16, =1
+  brlt %16, =24, Lb
+
+  sc =0
