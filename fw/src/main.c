@@ -676,6 +676,8 @@ int main()
     if (e == MUMU_EXIT_TIMEOUT) {
       swv_printf("timeout!\n");
       timeout_cooldown = 200;
+      memset(m.m, 0, sizeof m.m);
+      m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
     }
     if (timeout_cooldown > 0) {
       for (int i = 0; i < N_LIGHTS; i++) {
