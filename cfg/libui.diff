@@ -20,6 +20,61 @@ index cc2f330..bd0e7b8 100644
  int uiComboboxSelected(uiCombobox *c)
  {
  	return [c->pb indexOfSelectedItem];
+diff --git a/darwin/multilineentry.m b/darwin/multilineentry.m
+index d57284a..b70135c 100644
+--- a/darwin/multilineentry.m
++++ b/darwin/multilineentry.m
+@@ -15,6 +15,7 @@ struct uiMultilineEntry {
+ 	NSScrollView *sv;
+ 	intrinsicSizeTextView *tv;
+ 	uiprivScrollViewData *d;
++	NSFont *font;
+ 	void (*onChanged)(uiMultilineEntry *, void *);
+ 	void *onChangedData;
+ 	BOOL changing;
+@@ -62,6 +63,7 @@ static void uiMultilineEntryDestroy(uiControl *c)
+ 	uiprivScrollViewFreeData(e->sv, e->d);
+ 	[e->tv release];
+ 	[e->sv release];
++	[e->font release];
+ 	uiFreeControl(uiControl(e));
+ }
+ 
+@@ -77,6 +79,12 @@ char *uiMultilineEntryText(uiMultilineEntry *e)
+ 
+ void uiMultilineEntrySetText(uiMultilineEntry *e, const char *text)
+ {
++	// workaround for empty text losing attributes
++	if ([[e->tv textStorage] length] == 0) {
++		[[e->tv textStorage] replaceCharactersInRange:NSMakeRange(0, 0)
++			withString:uiprivToNSString(" ")];
++		[[e->tv textStorage] setFont:e->font];
++	}
+ 	[[e->tv textStorage] replaceCharactersInRange:NSMakeRange(0, [[e->tv string] length])
+ 		withString:uiprivToNSString(text)];
+ 	// must be called explicitly according to the documentation of shouldChangeTextInRange:replacementString:
+@@ -199,13 +207,20 @@ static uiMultilineEntry *finishMultilineEntry(BOOL hscroll)
+ 	[[e->tv textContainer] setContainerSize:NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)];
+ 
+ 	// don't use uiDarwinSetControlFont() directly; we have to do a little extra work to set the font
+-	font = [NSFont systemFontOfSize:[NSFont systemFontSizeForControlSize:NSRegularControlSize]];
++	if ([NSFont respondsToSelector:@selector(monospacedSystemFontOfSize:weight:)]) {
++		font = [NSFont monospacedSystemFontOfSize:[NSFont systemFontSizeForControlSize:NSRegularControlSize]
++		               weight:NSFontWeightRegular];
++	} else {
++		font = [NSFont fontWithName:@"Menlo" size:[NSFont systemFontSizeForControlSize:NSRegularControlSize]];
++	}
+ 	[e->tv setTypingAttributes:[NSDictionary
+ 		dictionaryWithObject:font
+ 		forKey:NSFontAttributeName]];
+ 	// e->tv font from Interface Builder is nil, but setFont:nil throws an exception
+ 	// let's just set it to the standard control font anyway, just to be safe
+ 	[e->tv setFont:font];
++	[[e->tv textStorage] setFont:font];
++	e->font = font;
+ 
+ 	memset(&p, 0, sizeof (uiprivScrollViewCreateParams));
+ 	p.DocumentView = e->tv;
 diff --git a/ui.h b/ui.h
 index 40aea94..f240439 100644
 --- a/ui.h
