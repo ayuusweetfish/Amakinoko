@@ -727,6 +727,7 @@ int main()
   (_port)->BSRR = bit; \
   while (TIM3->CNT < wait) { } \
   (_port)->BSRR = bit << 16; \
+  __COMPILER_BARRIER(); \
 } while (0)
 
 #pragma GCC push_options
@@ -778,20 +779,17 @@ if (0) {
 
   // A possible solution is to switch to PA4's SPI2_MOSI (AF1) and DMA the data out.
   // For now (Rev. 2), we check whether an we've been interrupted and retry if positive.
-  // TODO: Untested.
   do {
     LED_OUT_PORT->BSRR = LED_OUT_PIN << 16; // Reset code, drive low
     delay_us(60); // Nominal length is 50 us, leave some tolerance
 
-    HAL_NVIC_DisableIRQ(SysTick_IRQn);
+    HAL_SuspendTick();
     irqs_happened = false;
     TIM3->SR = ~TIM_SR_UIF;
     for (int i = 0; i < N_LIGHTS; i++) {
       uint32_t v = lights[i];
-      uint8_t g = (v >>  8) & 0xff;
-      uint8_t r = (v >> 16) & 0xff;
-      uint8_t b = (v >>  0) & 0xff;
       // G
+      uint8_t g = (v >>  8) & 0xff;
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 7));
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 6));
@@ -801,6 +799,7 @@ if (0) {
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 2));
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, g & (1 << 1));
       // R
+      uint8_t r = (v >> 16) & 0xff;
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 7));
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 6));
@@ -810,6 +809,7 @@ if (0) {
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 2));
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, r & (1 << 1));
       // B
+      uint8_t b = (v >>  0) & 0xff;
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, 0);
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 7));
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 6));
@@ -820,8 +820,9 @@ if (0) {
       OUTPUT_BIT(LED_OUT_PORT, LED_OUT_PIN, b & (1 << 1));
     }
 
-    HAL_NVIC_EnableIRQ(SysTick_IRQn);
+    while ((TIM3->SR & TIM_SR_UIF) == 0) { }
     LED_OUT_PORT->BSRR = LED_OUT_PIN; // Release line, write high, to avoid continuous current
+    HAL_ResumeTick();
   } while (irqs_happened);
 }
 #pragma GCC pop_options
