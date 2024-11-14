@@ -17,8 +17,11 @@ Arithmetic
 Memory
 # opcode: 7x
 ld    <A> <B> <Imm8>  A := [B + Imm8]
+ldi   <A> <B> <C>     A := [B + C]
 st    <A> <B> <Imm8>  [B + Imm8] := A
+sti   <A> <B> <C>     [B + C] := A
 ldc   <A> <B> <Imm8>  A := ROM[B + Imm8]
+ldci  <A> <B> <C>     A := ROM[B + C]
 ldcr  <A> <B> <Imm8>  A := ROM[PC + B + Imm8]
 
 Control flow

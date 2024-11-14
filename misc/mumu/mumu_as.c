@@ -441,6 +441,13 @@ uint32_t mumu_as_assemble(
             operands[2].ty == IMMEDIATE) {
           ensure_imm_range(2, 8);
           emit(0x70 + (mnemonic - MN_LD), operands[0].n, operands[1].n, operands[2].n);
+        } else if (mnemonic != MN_LDCR &&
+            n_operands == 3 &&
+            operands[0].ty == REGISTER &&
+            operands[1].ty == REGISTER &&
+            operands[2].ty == REGISTER) {
+          ensure_imm_range(2, 8);
+          emit(0x78 + (mnemonic - MN_LD), operands[0].n, operands[1].n, operands[2].n);
         } else if (n_operands == 2 &&
             operands[0].ty == REGISTER &&
             operands[1].ty == REGISTER) {

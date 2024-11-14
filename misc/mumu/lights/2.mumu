@@ -41,8 +41,7 @@ L:
   ld %20, %17, =130   # B
   or %21, %20
 
-  add %19, %16, %18   # Maybe optimise the instruction set
-  st %21, %19
+  st %21, %16, %18
 
   add %16, =1
   add %17, =3

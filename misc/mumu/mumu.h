@@ -75,12 +75,15 @@ enum mumu_exit_t mumu_run(mumu_vm_t *restrict m)
     case 0x7: {
       uint8_t a   = (instr >> 16) & 0xFF;
       uint8_t b   = (instr >>  8) & 0xFF;
-      uint8_t imm = (instr >>  0) & 0xFF;
+      uint8_t c   = (instr >>  0) & 0xFF;
       switch (opcode & 0xF) {
-        case 0: RAM(a) = RAM(RAM(b) + imm); break;
-        case 1: RAM(RAM(b) + imm) = RAM(a); break;
-        case 2: RAM(a) = ROM(RAM(b) + imm); break;
-        case 3: RAM(a) = ROM(pc + RAM(b) + imm); break;
+        case 0: RAM(a) = RAM(RAM(b) + c); break;
+        case 8: RAM(a) = RAM(RAM(b) + RAM(c)); break;
+        case 1: RAM(RAM(b) + c) = RAM(a); break;
+        case 9: RAM(RAM(b) + RAM(c)) = RAM(a); break;
+        case 2: RAM(a) = ROM(RAM(b) + c); break;
+        case 10: RAM(a) = ROM(RAM(b) + RAM(c)); break;
+        case 3: RAM(a) = ROM(pc + RAM(b) + c); break;
         default: break;
       }
       break;
