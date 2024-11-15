@@ -302,7 +302,10 @@ static void lights_draw(uiAreaHandler *ah, uiArea *area, uiAreaDrawParams *p)
     double r = lights[i][0] / 255.0;
     double g = lights[i][1] / 255.0;
     double b = lights[i][2] / 255.0;
-    double max = (r > g ? r : g); max = (max > b ? max : b);
+    double max = 1. / 16;
+    if (max < r) max = r;
+    if (max < g) max = g;
+    if (max < b) max = b;
     double a = 1 - (1 - r) * (1 - g) * (1 - b) * 0.75;
     if (max > 0) { r /= max; g /= max; b /= max; }
 
