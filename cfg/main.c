@@ -3,6 +3,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
