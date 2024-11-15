@@ -1,0 +1,120 @@
+  # %128 ~ %(128+24): Lights (25 elements)
+
+  # %46: Initialisation counter
+  # %47: Initial lux meter value
+
+  # Initialisation
+  breq %46, =40, Mf
+
+W:  # Wait
+  # No-op during the initial 400 ms,
+  # waiting for an ambient illuminance reading
+  add %46, =1
+  breq %46, =40, If
+  sc =0
+
+I:
+  # Read lux meter
+  mov %47, %3
+  mov %48, =7
+
+M:  # Main
+  # %48: Frame subdivision
+
+  add %48, =1
+  brne %48, =8, Mf
+
+  mov %48, =0
+  # Shift lights by one
+  # For %16 in 72 ~ 0 (inclusive)
+  mov %16, =72
+L:
+  ld %17, %16, =128
+  ld %18, %16, =129
+  ld %19, %16, =130
+  st %17, %16, =131
+  st %18, %16, =132
+  st %19, %16, =133
+  sub %16, =3
+  brlt %16, =72, Lb
+
+  # New light
+  # %16, %17, %18: R, G, B
+  # %49: Position in animation sequence
+
+  br Cf
+A:
+  data 00000014 00000000 0000000a
+  data 0000001e 00000000 00000000
+  data 00000014 0000000a 00000000
+  data 0000000a 00000014 00000000
+  data 00000000 0000001e 00000000
+  data 00000000 00000014 0000000a
+  data 00000000 0000000a 00000014
+  data 00000000 00000000 0000001e
+  data 0000000a 00000000 00000014
+
+C:
+  mov %19, Ab   # Absolute address
+  add %49, =1
+  brne %49, =9, Af
+  mov %49, =0
+A:
+  mul %20, %49, =3
+  add %19, %20
+  ldc %16, %19, =0
+  ldc %17, %19, =1
+  ldc %18, %19, =2
+
+  # Store to line
+  mov %19, =128
+  st %16, %19, =0
+  st %17, %19, =1
+  st %18, %19, =2
+
+M:  # Move
+
+  # Write lights buffer to output
+  mov %16, =0
+  mov %17, =0
+  mov %18, =256
+L:
+  ld %20, %17, =128   # R1
+  ld %21, %17, =129   # G1
+  ld %22, %17, =130   # B1
+  ld %23, %17, =131   # R2
+  ld %24, %17, =132   # G2
+  ld %25, %17, =133   # B2
+
+  # R = (R1 * div + R2 * (8 - div)), etc.
+  mov %26, =8
+  sub %26, %48  # 8 - div
+
+  mul %27, %20, %48
+  mul %28, %23, %26
+  add %20, %27, %28
+  lsr %20, =3
+
+  mul %27, %21, %48
+  mul %28, %24, %26
+  add %21, %27, %28
+  lsr %21, =3
+
+  mul %27, %22, %48
+  mul %28, %25, %26
+  add %22, %27, %28
+  lsr %22, =3
+
+  # Combine into a single value and write to output area
+  lsl %20, =16
+  lsl %21, =8
+  or %20, %21
+  or %20, %22
+
+  st %20, %16, %18
+
+  add %16, =1
+  add %17, =3
+  brlt %16, =24, Lb
+
+  sc =0
