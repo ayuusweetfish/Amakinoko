@@ -112,6 +112,7 @@ static void queue_tx_flush();
 static void tx_readings_if_connected();
 
 static _Atomic bool irqs_happened;
+static _Atomic bool flash_rewritten;
 
 __attribute__ ((section(".RamFunc")))
 static void storage_write(uint32_t offs, const uint8_t data[256])
@@ -695,33 +696,43 @@ int main()
     TIM17->DIER |= TIM_DIER_UIE;
     TIM17->CR1 |= TIM_CR1_CEN;
 
-    enum mumu_exit_t e = mumu_run(&m); // 36 instructions
+    flash_rewritten = false;
+    enum mumu_exit_t e = mumu_run(&m);
 
     TIM17->CR1 &= ~TIM_CR1_CEN;
     __HAL_RCC_TIM17_CLK_DISABLE();
 
-    if (e == MUMU_EXIT_TIMEOUT) {
-      swv_printf("timeout!\n");
-      timeout_cooldown = 200;
+    if (flash_rewritten) {
+      // Interrupts and induced flash writes may disturb the Mumu ROM
+      // In these cases we simply reset the entire VM
+      // XXX: Maybe DRY?
       memset(m.m, 0, sizeof m.m);
       m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
-    }
-    if (timeout_cooldown > 0) {
-      for (int i = 0; i < N_LIGHTS; i++) {
-        uint8_t phase = (i * 8 + frame_n) % 64;
-        static const uint8_t lut[64] = {
-          // from math import sin, pi, sqrt; print(', '.join('%d' % round(20 * sqrt(2 + sin(i/64.0 * pi*2))) for i in range(64)))
-          28, 29, 30, 30, 31, 31, 32, 32, 33, 33, 34, 34, 34, 34, 35, 35, 35, 35, 35, 34, 34, 34, 34, 33, 33, 32, 32, 31, 31, 30, 30, 29, 28, 28, 27, 26, 25, 25, 24, 23, 23, 22, 22, 21, 21, 20, 20, 20, 20, 20, 20, 20, 21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 27, 28
-        };
-        lights[i] = (0x28 << 16) | ((uint32_t)lut[phase] << 8);
+      timeout_cooldown = 0;
+    } else {
+      if (e == MUMU_EXIT_TIMEOUT) {
+        swv_printf("timeout!\n");
+        timeout_cooldown = 200;
+        memset(m.m, 0, sizeof m.m);
+        m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
       }
-      timeout_cooldown--;
+      if (timeout_cooldown > 0) {
+        for (int i = 0; i < N_LIGHTS; i++) {
+          uint8_t phase = (i * 8 + frame_n) % 64;
+          static const uint8_t lut[64] = {
+            // from math import sin, pi, sqrt; print(', '.join('%d' % round(20 * sqrt(2 + sin(i/64.0 * pi*2))) for i in range(64)))
+            28, 29, 30, 30, 31, 31, 32, 32, 33, 33, 34, 34, 34, 34, 35, 35, 35, 35, 35, 34, 34, 34, 34, 33, 33, 32, 32, 31, 31, 30, 30, 29, 28, 28, 27, 26, 25, 25, 24, 23, 23, 22, 22, 21, 21, 20, 20, 20, 20, 20, 20, 20, 21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 27, 28
+          };
+          lights[i] = (0x28 << 16) | ((uint32_t)lut[phase] << 8);
+        }
+        timeout_cooldown--;
+      }
+
+      frame_n++;
+
+      // Write lights to output
+      output_lights();
     }
-
-    frame_n++;
-
-    // Write lights to output
-    output_lights();
 
     uint32_t cur = HAL_GetTick();
     if (cur >= last_sensors_start + 20) {
@@ -1024,6 +1035,7 @@ static void serial_rx_process_byte(uint8_t c)
           memset(m.m, 0, sizeof m.m);
           m.m[MUMU_RAM_SIZE - 1] = MUMU_RAM_SIZE - 1;
           timeout_cooldown = 0;
+          flash_rewritten = true; // Notify the main loop in case the VM is running
         }
       }
     }
