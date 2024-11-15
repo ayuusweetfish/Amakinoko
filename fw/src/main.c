@@ -777,7 +777,7 @@ void output_lights()
 {
   // 800 kHz = 80 cycles/bit
 
-  // XXX: Since 800 kHz is on the same order of the serial transmission,
+  // NOTE: Since 800 kHz is on the same order of the serial transmission,
   // simply turnning off UART will lead to missed data;
   // Also, DMA for RX is not appropriate as we'd like to monitor
   // each byte's time of arrival.
@@ -1081,13 +1081,15 @@ static void serial_rx_process_byte(uint8_t c)
 void tx_readings_if_connected()
 {
   if (!rx_connected) return;
+#ifndef RELEASE
   if (rx_len != 0 && rx_ptr != rx_len) {
-    // XXX: Debug use
+    // Debug use
     HAL_UART_Transmit(&uart2, (uint8_t []){ 3, 0x0a, rx_len, rx_ptr }, 4, HAL_MAX_DELAY);
     if (HAL_GetTick() - rx_last_timestamp < RX_BYTE_TIMEOUT) {
       return;
     }
   }
+#endif
 
   uint8_t readings_buf[TX_READINGS_LEN];
   fill_tx_readings(readings_buf);
