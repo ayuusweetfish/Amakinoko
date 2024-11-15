@@ -16,13 +16,13 @@ W:  # Wait
 I:
   # Read lux meter
   mov %47, %3
-  mov %48, =7
+  mov %48, =8
 
 M:  # Main
   # %48: Frame subdivision
 
   add %48, =1
-  brne %48, =8, Mf
+  brlt %48, =8, Mf
 
   mov %48, =0
   # Shift lights by one
@@ -57,7 +57,7 @@ A:
   # Repeat first frame
 
 C:
-  add %50, =1
+  add %50, =4   # Narrower rainbow cycles
   brne %50, =8, Tf
   # Move to next frame
   mov %50, =0
@@ -116,7 +116,7 @@ L:
 
   sc =0
 
-B:  # Blend
+B:  # Subroutine Blend
   # Input: %20 ~ %25 (R1, G1, B1, R2, G2, B2)
   #        %26 (subdivision of 8)
   # Scratch: %27 ~ %30
