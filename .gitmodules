@@ -4,3 +4,7 @@
 [submodule "cfg/libserialport"]
 	path = cfg/libserialport
 	url = git://sigrok.org/libserialport
+[submodule "cfg/zlib"]
+	path = cfg/zlib
+	url = https://github.com/madler/zlib.git
+	branch = master

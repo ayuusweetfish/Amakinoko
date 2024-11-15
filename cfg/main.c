@@ -1,5 +1,6 @@
 #include "libui/ui.h"
 #include "libserialport/libserialport.h"
+#include "zlib.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -656,10 +657,18 @@ static void conn()
     mumu_bin_len = rx_len;
     if (dump_data) fprintf(stderr, "received %d bytes binary\n", rx_len);
 
-    rx_len = rx_timeout(mumu_src, sizeof mumu_src, 10);
+    uint8_t mumu_src_compressed[sizeof mumu_src];
+    rx_len = rx_timeout(mumu_src_compressed, sizeof mumu_src, 10);
     if (rx_len < 0) continue;
-    mumu_src_len = rx_len;
     if (dump_data) fprintf(stderr, "received %d bytes source\n", rx_len);
+
+    uLongf compressed_len = rx_len;
+    uLongf decompressed_len = sizeof mumu_src;
+    int z_result = uncompress(mumu_src, &decompressed_len, mumu_src_compressed, compressed_len);
+    ensure_or_reject(z_result == Z_OK, "Error during source decompression");
+    mumu_src_len = decompressed_len;
+    if (dump_data) fprintf(stderr, "decompressed into %d bytes\n", mumu_src_len);
+
     mumu_src[mumu_src_len] = '\0';
     for (int i = 0; i < mumu_src_len; i++)
       if ((mumu_src[i] < 32 || mumu_src[i] > 126) && mumu_src[i] != '\n')
@@ -747,8 +756,15 @@ static void btn_upload_clicked(uiButton *btn, void *_unused)
   const uint8_t *rom = (uint8_t *)assembled_rom;
   rom_len = assembled_rom_len * 4;
 
-  char *src = uiMultilineEntryText(text_source);
-  src_len = strlen(src);
+  char *src_raw = uiMultilineEntryText(text_source);
+  int src_raw_len = strlen(src_raw);
+
+  uint8_t *src = malloc(compressBound(src_raw_len));
+  uLongf src_len_ulong;
+  int z_result = compress(src, &src_len_ulong, (uint8_t *)src_raw, src_raw_len);
+  ensure_or_act(z_result == Z_OK,
+    { error = true; goto _fin; }, "Error during source compression");
+  src_len = src_len_ulong;
 
   ensure_or_act(rom_len > 0 && src_len > 0,
     { error = true; goto _fin; }, "Program cannot be empty");
@@ -810,7 +826,8 @@ _retry:
 
 _fin:
   thread_rx_pause(false);
-  uiFreeText(src);
+  free(src);
+  uiFreeText(src_raw);
   if (error) error_and_continue();
 }
 

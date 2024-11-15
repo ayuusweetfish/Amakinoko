@@ -18,7 +18,7 @@ endif
 all: $(MAIN_EXE)
 
 main: main.c mumu_as.o
-	$(CC) -o $@ $^ -Wall -std=c99 libui/build/meson-out/libui.a libserialport/.libs/libserialport.a -framework Cocoa -framework IOKit $(OPT_FLAGS) $(DEBUG_FLAGS)
+	$(CC) -o $@ $^ -Wall -std=c99 libui/build/meson-out/libui.a libserialport/.libs/libserialport.a zlib/libz.a -Izlib -framework Cocoa -framework IOKit $(OPT_FLAGS) $(DEBUG_FLAGS)
 
 mumu_as.o: mumu_as.c
 	$(CC) -c -o $@ $^ -Wall -std=c99 $(OPT_FLAGS) $(DEBUG_FLAGS)
