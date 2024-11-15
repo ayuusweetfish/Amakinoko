@@ -634,6 +634,9 @@ static void conn()
       fprintf(stderr, "att = %d - Last error: %s\n", att, global_err_msg);
       usleep(5000 + 3000 * att);  // Reset device reception state
     }
+
+    ensure_or_reject(SP_OK == sp_flush(port, SP_BUF_BOTH), "Cannot flush port");
+
     // Try to request first packet of data
     if (tx((uint8_t []){0xAA}, 1) < 0) continue;
     int rx_len = rx();
