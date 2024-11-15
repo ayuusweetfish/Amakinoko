@@ -205,7 +205,7 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
       uint16_t last_v = (level == 1 ? ~FULL_MASK : FULL_MASK);
       record[n_records] = (struct record_t){.t = (uint16_t)-1, .v = last_v};
 
-      HAL_NVIC_DisableIRQ(SysTick_IRQn);
+      HAL_SuspendTick();
       irqs_happened = false;
       HAL_GPIO_WritePin(BTN_OUT_PORT, BTN_OUT_PIN, level);
       for (int i = 0; i < 100; i++) {
@@ -215,7 +215,7 @@ static inline void cap_sense(uint16_t cap_sum[N_ELECTRODES])
         record[n_records] = (struct record_t){.t = i, .v = cur_v};
         last_v = cur_v;
       }
-      HAL_NVIC_EnableIRQ(SysTick_IRQn);
+      HAL_ResumeTick();
     } while (irqs_happened);
 
     for (int j = 0; j < N_ELECTRODES; j++) cap[j] = 0xffff;
@@ -737,41 +737,6 @@ int main()
 __attribute__ ((section(".RamFunc")))
 void output_lights()
 {
-if (0) {
-  frame_n++;
-
-  static const uint8_t seq[9][3] = {
-    {3, 0, 0},
-    {2, 1, 0},
-    {1, 2, 0},
-    {0, 3, 0},
-    {0, 2, 1},
-    {0, 1, 2},
-    {0, 0, 3},
-    {1, 0, 2},
-    {2, 0, 1},
-  };
-  static const uint8_t seq_len = (sizeof seq) / (sizeof seq[0]);
-
-  static uint32_t frame = 0, frame_subdiv = 0;
-  if (++frame_subdiv == 8) {
-    frame_subdiv = 0;
-    frame++;
-    if (frame == seq_len /* N + 2 */) frame = 0;
-  }
-
-  for (int i = 0, f = frame; i < N_LIGHTS; i++, f = (f == seq_len - 1 ? 0 : f + 1)) {
-    uint8_t g = 0, r = 0, b = 0;
-
-    uint8_t f1 = (f == seq_len - 1 ? 0 : f + 1);
-    g = (seq[f][0] * (8 - frame_subdiv) + seq[f1][0] * frame_subdiv) + 1;
-    r = (seq[f][1] * (8 - frame_subdiv) + seq[f1][1] * frame_subdiv) + 1;
-    b = (seq[f][2] * (8 - frame_subdiv) + seq[f1][2] * frame_subdiv) + 1;
-
-    lights[i] = ((r * 10) << 16) | ((g * 10) << 8) | (b * 10);
-  }
-}
-
   // 800 kHz = 80 cycles/bit
 
   // XXX: Since 800 kHz is on the same order of the serial transmission,
@@ -900,8 +865,9 @@ static void queue_tx_flush()
       // Transmit first readings
       uint8_t readings_buf[TX_READINGS_LEN];
       fill_tx_readings(readings_buf);
-      HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, &(uint8_t){ 11 + 12 + TX_READINGS_LEN }, 1, HAL_MAX_DELAY);
       HAL_UART_Transmit(&uart2, (uint8_t *)"\x55" "Amakinoko" "\x20", 11, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&uart2, (uint8_t *)UID_BASE, 12, HAL_MAX_DELAY);
       HAL_UART_Transmit(&uart2, readings_buf, TX_READINGS_LEN, HAL_MAX_DELAY);
       // Transmit program binary and source text
       uint8_t l[2];

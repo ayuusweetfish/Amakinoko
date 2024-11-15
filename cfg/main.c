@@ -645,8 +645,8 @@ static void conn()
     ensure_or_reject(revision == 0x20, "Invalid device revision 0x%02x", (unsigned)revision);
     if (dump_data) fprintf(stderr, "Device revision 0x%02x\n", (unsigned)revision);
 
-    ensure_or_reject(rx_len >= 11 + TX_READINGS_LEN, "Invalid readings");
-    parse_readings(rx_buf + 11);
+    ensure_or_reject(rx_len >= 11 + 12 + TX_READINGS_LEN, "Invalid readings");
+    parse_readings(rx_buf + 11 + 12);
 
     rx_len = rx_timeout(mumu_bin, sizeof mumu_bin, 10);
     if (rx_len < 0) continue;

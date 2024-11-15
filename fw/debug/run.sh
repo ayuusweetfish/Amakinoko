@@ -3,6 +3,9 @@ openocd_init=
 if [[ "$1" == *"f"* ]]; then  # flash
   openocd_cmds="$openocd_cmds; program {.pio/build/dev/firmware.elf} verify reset"
 fi
+if [[ "$1" == *"F"* ]]; then  # flash release
+  openocd_cmds="$openocd_cmds; program {.pio/build/rel/firmware.elf} verify reset"
+fi
 if [[ "$1" == *"s"* ]]; then  # serve
   openocd_cmds="$openocd_cmds; init"
   openocd_init=1
