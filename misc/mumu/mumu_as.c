@@ -282,7 +282,7 @@ uint32_t mumu_as_assemble(
     // Directives
     if (mnemonic == MN_DATA) {
       uint32_t value = 0;
-      uint8_t n_bits = 0;
+      uint8_t n_nibbles = 0;
       while (1) {
         while (isspace(c)) {
           if (c == '\n') goto line_fin;
@@ -291,15 +291,15 @@ uint32_t mumu_as_assemble(
         int n = hex_digit(c);
         if (n == -1) report_error_here("Expected hexadecimal number");
         value = (value << 4) | n;
-        if (++n_bits == 8) {
+        if (++n_nibbles == 8) {
           emit_32(value);
           value = 0;
-          n_bits = 0;
+          n_nibbles = 0;
         }
         c = my_getchar();
       }
     line_fin:
-      if (n_bits != 8) emit_32(value);
+      if (n_nibbles > 0 && n_nibbles < 8) emit_32(value);
       continue;
     }
 

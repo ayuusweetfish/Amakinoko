@@ -39,8 +39,8 @@ L:
   brlt %16, =72, Lb
 
   # New light
-  # %16, %17, %18: R, G, B
-  # %49: Position in animation sequence
+  # %49: Frame in animation sequence
+  # %50: Subdivision in animation frame
 
   br Cf
 A:
@@ -53,24 +53,37 @@ A:
   data 00000000 0000000a 00000014
   data 00000000 00000000 0000001e
   data 0000000a 00000000 00000014
+  data 00000014 00000000 0000000a
+  # Repeat first frame
 
 C:
-  mov %19, Ab   # Absolute address
+  add %50, =1
+  brne %50, =8, Tf
+  # Move to next frame
+  mov %50, =0
   add %49, =1
-  brne %49, =9, Af
+  brne %49, =9, Tf
   mov %49, =0
-A:
-  mul %20, %49, =3
-  add %19, %20
-  ldc %16, %19, =0
-  ldc %17, %19, =1
-  ldc %18, %19, =2
+
+T:  # Fetch colour from sequence
+  mul %19, %49, =3
+  add %19, Ab
+  ldc %20, %19, =0  # Current frame
+  ldc %21, %19, =1
+  ldc %22, %19, =2
+  ldc %23, %19, =3  # Next frame
+  ldc %24, %19, =4
+  ldc %25, %19, =5
+
+  mov %26, =8
+  sub %26, %50
+  call Bf
 
   # Store to line
   mov %19, =128
-  st %16, %19, =0
-  st %17, %19, =1
-  st %18, %19, =2
+  st %20, %19, =0
+  st %21, %19, =1
+  st %22, %19, =2
 
 M:  # Move
 
@@ -86,24 +99,8 @@ L:
   ld %24, %17, =132   # G2
   ld %25, %17, =133   # B2
 
-  # R = (R1 * div + R2 * (8 - div)), etc.
-  mov %26, =8
-  sub %26, %48  # 8 - div
-
-  mul %27, %20, %48
-  mul %28, %23, %26
-  add %20, %27, %28
-  lsr %20, =3
-
-  mul %27, %21, %48
-  mul %28, %24, %26
-  add %21, %27, %28
-  lsr %21, =3
-
-  mul %27, %22, %48
-  mul %28, %25, %26
-  add %22, %27, %28
-  lsr %22, =3
+  mov %26, %48
+  call Bf
 
   # Combine into a single value and write to output area
   lsl %20, =16
@@ -118,3 +115,30 @@ L:
   brlt %16, =24, Lb
 
   sc =0
+
+B:  # Blend
+  # Input: %20 ~ %25 (R1, G1, B1, R2, G2, B2)
+  #        %26 (subdivision of 8)
+  # Scratch: %27 ~ %30
+  # Output: %20 ~ 25
+
+  mov %27, =8
+  sub %27, %26  # 8 - div
+
+  # R = (R1 * div + R2 * (8 - div)), etc.
+  mul %28, %20, %26
+  mul %29, %23, %27
+  add %20, %28, %29
+  lsr %20, =3
+
+  mul %28, %21, %26
+  mul %29, %24, %27
+  add %21, %28, %29
+  lsr %21, =3
+
+  mul %28, %22, %26
+  mul %29, %25, %27
+  add %22, %28, %29
+  lsr %22, =3
+
+  ret
