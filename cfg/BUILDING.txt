@@ -1,6 +1,10 @@
 # main
 
-clang main.c -Wall -std=c99 libui/build/meson-out/libui.a libserialport/.libs/libserialport.a -framework Cocoa -framework IOKit -O2
+make
+
+make DEBUG=1
+
+make WIN=1
 
 # libui
 
@@ -48,7 +52,15 @@ cd libserialport
 ./configure
 make
 
-cd libserialport-win
+cd libserialport_win
 ./autogen.sh
 ./configure --host=x86_64-w64-mingw32
 make
+
+# zlib
+
+cd zlib
+./configure && make
+
+cd zlib_win
+make PREFIX=x86_64-w64-mingw32- -fwin32/Makefile.gcc
