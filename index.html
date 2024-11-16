@@ -86,4 +86,20 @@ video {
 </div></div>
 </div>
 
+<script>
+const container = document.querySelector('.container')
+window.addEventListener('keydown', (e) => {
+  const h = window.innerHeight
+  const y = container.scrollTop
+  const page = Math.round(y / h)
+  const n_pages = 15
+  console.log(page)
+  if ((e.keyCode === 37 || e.keyCode === 38) && page >= 1) {
+    container.scrollTo({ top: h * (page - 1), left: 0, behavior: 'smooth' })
+  } else if ((e.keyCode === 39 || e.keyCode === 40 || e.keyCode === 13 || e.keyCode === 32) && page < n_pages - 1) {
+    container.scrollTo({ top: h * (page + 1), left: 0, behavior: 'smooth' })
+  }
+})
+</script>
+
 </body></html>
