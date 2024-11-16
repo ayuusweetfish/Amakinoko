@@ -665,7 +665,10 @@ static void conn()
     uLongf compressed_len = rx_len;
     uLongf decompressed_len = sizeof mumu_src;
     int z_result = uncompress(mumu_src, &decompressed_len, mumu_src_compressed, compressed_len);
-    ensure_or_reject(z_result == Z_OK, "Error during source decompression");
+    if (z_result != Z_OK) {
+      status_bar("* 解压缩源程序");
+      mumu_src_len = 0;
+    }
     mumu_src_len = decompressed_len;
     if (dump_data) fprintf(stderr, "decompressed into %d bytes\n", mumu_src_len);
 
