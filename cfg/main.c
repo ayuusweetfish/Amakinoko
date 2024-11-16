@@ -114,6 +114,7 @@ struct readings_t {
 } last_readings;
 
 static bool readings_is_valid = false;
+static bool readings_integrity_notified;  // Reset at connection establishment
 
 static uint8_t lights[24][3] = {{ 0 }};
 
@@ -192,7 +193,8 @@ static void parse_continuous_rx(void *_buf)
     if (timeout) {
       strcpy(s, "* 程序超时");
     }
-    if (readings_valid_mask != 0x07) {
+    if (readings_valid_mask != 0x07 && (s[0] != '\0' || !readings_integrity_notified)) {
+      readings_integrity_notified = true;
       int len = strlen(s);
       snprintf(s + len, sizeof s - len, "%s传感器数据不完整 (%u)",
         len == 0 ? "* " : " / ", (unsigned)readings_valid_mask);
@@ -611,6 +613,8 @@ static void start_list_refresh_timer_if_unconnected()
   }
 }
 
+static uint8_t device_rev;
+static uint8_t device_uid[12];
 static uint32_t mumu_bin_len;
 static uint8_t mumu_bin[65536];
 static uint32_t mumu_src_len;
@@ -645,12 +649,20 @@ static void conn()
 
     ensure_or_reject(rx_len >= 11 &&
       memcmp(rx_buf, "\x55" "Amakinoko", 10) == 0, "Invalid device signature");
-    uint8_t revision = rx_buf[10];
-    ensure_or_reject(revision == 0x20, "Invalid device revision 0x%02x", (unsigned)revision);
-    if (dump_data) fprintf(stderr, "Device revision 0x%02x\n", (unsigned)revision);
+    device_rev = rx_buf[10];
+    ensure_or_reject(device_rev == 0x20, "Invalid device revision 0x%02x", (unsigned)device_rev);
+    if (dump_data) fprintf(stderr, "Device revision 0x%02x\n", (unsigned)device_rev);
 
     ensure_or_reject(rx_len >= 11 + 12 + TX_READINGS_LEN, "Invalid readings");
     parse_readings(rx_buf + 11 + 12);
+
+    memcpy(device_uid, rx_buf + 11, 12);
+
+    for (int i = 0; i < 12; i++) {
+      device_uid[i * 3 + 0] = "0123456789ABCDEF"[rx_buf[11 + i] >> 8];
+      device_uid[i * 3 + 1] = "0123456789ABCDEF"[rx_buf[11 + i] & 0xf];
+      device_uid[i * 3 + 2] = (i + 1 == 12 ? '\0' : '-');
+    }
 
     rx_len = rx_timeout(mumu_bin, sizeof mumu_bin, 10);
     if (rx_len < 0) continue;
@@ -694,7 +706,20 @@ _retry: { }
     error_and_continue();
   } else {
     uiControlEnable(uiControl(btn_upload));
-    status_bar("✓ 已连接");
+    if (dump_data) {  // XXX: Better way of displaying?
+      char s[64];
+      int n = snprintf(s, sizeof s, "✓ 设备版本 %u.%u，序列号 ",
+        (unsigned)(device_rev >> 4), (unsigned)(device_rev & 0xf));
+      for (int i = 0; i < 12; i++) {
+        s[n + i * 3 + 0] = "0123456789ABCDEF"[device_uid[11 + i] >> 4];
+        s[n + i * 3 + 1] = "0123456789ABCDEF"[device_uid[11 + i] & 0xf];
+        s[n + i * 3 + 2] = (i + 1 == 12 ? '\0' : '-');
+      }
+      status_bar(s);
+    } else {
+      status_bar("✓ 已连接");
+    }
+    readings_integrity_notified = false;
   }
   update_cbox_disp();
 }
