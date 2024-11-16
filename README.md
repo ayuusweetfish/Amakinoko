@@ -1,8 +1,11 @@
 # 天气蘑菇 · アマキノコ · Amakinoko
 
-一个蘑菇外形的彩灯装置，流动的颜色依天气变化。通过 USB 连接电脑，也可以自行定制光效。
+一个蘑菇外形的彩灯装置，流动的颜色依天气变化。光效亦可通过 USB 连接电脑定制。
 
-![ ](./misc/img/cover.jpg)
+[**汇报展示与视频**](https://ayuusweetfish.github.io/Amakinoko/)  
+[**Rev. 2 资料**](https://github.com/ayuusweetfish/Amakinoko/releases/tag/rev-2)
+
+![封面图，蘑菇外形的色彩各异的灯](./misc/img/cover.jpg)
 
 ## 食谱
 
@@ -27,20 +30,22 @@
 7. 将外壳与内胆粘贴固定；
 8. 连接 USB 电源即可。
 
-注：3D 打印与 PCBA 的组装未列入。PCBA 组装可参考 KiCad 工程文件；完成后通过 DAP 调试器向 STM32 微控制器写入程序，再通过 Amakinoko 配置工具写入灯光程序。
+注：3D 打印与 PCBA 的组装未列入。PCBA 组装可参考 KiCad 工程文件；完成后通过 DAP 调试器向 STM32 微控制器写入固件，再通过蘑菇配置工具写入灯光程序。
 
 ## 定制灯光
 
-灯光程序运行在 Mumu 虚拟机中，目前可以通过 Mumu 汇编语言撰写。（文档待补全，暂时可参考现有的程序。）
+通过 USB 数据线将装置连接至计算机，运行配置工具软件（发布页面提供 Windows 与 macOS 版本下载）。连接后即可看到实时读数、灯光颜色与光效程序。
+
+光效程序运行在 [Mumu 虚拟机](./misc/mumu)中，目前以 Mumu 汇编语言撰写。Mumu 是一个结构简单的虚拟计算模型，其上的程序能访问 2 KiB 的内存空间。
 
 ## 目录组织
 - **hw/**: 印刷电路板工程文件
 - **fw/**: STM32 微控制器固件源程序
+- **mech/**: 外壳 3D 模型
 - **cfg/**: PC 配置工具软件源程序
-- **releases/**: 3D 打印模型、向印刷电路板厂家提交的 Gerber 图纸，以及作为释出版本的固件机器码
 
 部分文件可以通过以下软件打开（版本号作为参考）：
-- 打印零件：3D One
+- 外壳：3D One
 - 电路板：KiCad (7.0.10)
 - 固件：Arm GNU Toolchain (GCC 10.3.1), STM32CubeG0 (1.5.0), PlatformIO (6.1.16)
 

@@ -11,26 +11,7 @@ A:
 B:
   bre %0, %5, Cf
   mov %0, %2
-  # Load [Z+0] from ROM
-  mov %1, Zf  # Load address
-  ldc %1, %1, =0
-  call Ff
   sc =0
 C:
   mov %0, %1
-  mov %1, Zf
-  ldc %1, %1, =1
-  call Ff
   sc =0
-
-Z:
-  data aa 55 aa 55 11
-  baal %0, %1, %2
-  br Cb
-  ba %2
-
-F:
-  push %0-%0
-  mov %0, =1
-  add %1, %0
-  ret %0-%0
