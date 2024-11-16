@@ -79,6 +79,10 @@ T:  # Fetch colour from sequence
   sub %26, %50
   call Bf
 
+  lsl %20, =3
+  lsl %21, =3
+  lsl %22, =3
+
   # Store to line
   mov %19, =128
   st %20, %19, =0
